@@ -617,124 +617,99 @@ int AutoPlay::OnHeartbeat(
 		}
 
 		// =========================================================
-		// SCANARE DUPA SEMNATURA. sizeof(MOBSCONTEXT) din header (0x1784)
-		// nu e stride-ul real (slot 1 iese gunoi) => header incomplet,
-		// struct runtime mai mare. DAR offset-urile campurilor sunt corecte
-		// (slot 0 citeste bine). Le luam cu pointer-diff din slot 0 si
-		// scanam memoria din 4 in 4 bytes dupa semnatura unui mob viu
-		// (species in [1,3663] + hp==hpMax mic). Gaseste toti mobii,
-		// indiferent de stride; diferenta de offset intre ei = stride real.
+		// ENUMERATOR CURAT. Stride real = 0x1678 (dedus din sig-scan:
+		// mobii reali sunt exact la n*0x1678 si = randurile world1-mmap.scp).
+		// Header-ul are sizeof gresit (0x1784) DAR offset-urile campurilor
+		// sunt corecte: species@0x890, iHP@0x1C8, iHPMax@0x1E8, pos@0x130,
+		// obj@0x854. Iteram doar sloturi aliniate i*0x1678 => zero
+		// false-positive (cele cu hp=1/1 erau la +0x788, ne-aliniate).
 		// =========================================================
 
 		char* mobBase = reinterpret_cast<char*>(mobArray);
+		const long long kMobStride = 0x1678;
 
-		if (mobBase)
+		// Pozitia playerului din ACELASI camp ca mobii (sPosData@0x130).
+		const int plX = pUserDataCtx->sPosData.iPosXCur;
+		const int plY = pUserDataCtx->sPosData.iPosYCur;
+
+		if (mobBase && mobsCount > 0 && mobsCount <= 4096)
 		{
-			MOBSCONTEXT* p0 = reinterpret_cast<MOBSCONTEXT*>(mobBase);
+			int       aliveCount  = 0;
+			int       loggedCount = 0;
+			int       nearestSlot = -1;
+			int       nearestSp   = -1;
+			int       nearestObj  = -1;
+			long long nearestD2   = -1;
 
-			const long monOff = static_cast<long>(
-				reinterpret_cast<char*>(&p0->sMobsData.iMonsterIndex) -
-				reinterpret_cast<char*>(p0));
-			const long hpOff = static_cast<long>(
-				reinterpret_cast<char*>(&p0->sParameters.iHP) -
-				reinterpret_cast<char*>(p0));
-			const long hpMxOff = static_cast<long>(
-				reinterpret_cast<char*>(&p0->sParameters.iHPMax) -
-				reinterpret_cast<char*>(p0));
-			const long posOff = static_cast<long>(
-				reinterpret_cast<char*>(&p0->sPosData.iPosXCur) -
-				reinterpret_cast<char*>(p0));
-			const long objOff = static_cast<long>(
-				reinterpret_cast<char*>(&p0->objIdx.sObjIdxData) -
-				reinterpret_cast<char*>(p0));
-
+			for (int i = 0; i < mobsCount; ++i)
 			{
-				char oo[256];
-				snprintf(oo, sizeof(oo),
-					"DIAG offs: mon=0x%lX hp=0x%lX hpMax=0x%lX pos=0x%lX "
-					"obj=0x%lX szHdr=0x%zX",
-					monOff, hpOff, hpMxOff, posOff, objOff, sizeof(MOBSCONTEXT));
-				Management::WriteLogs(kLogPath, oo);
-			}
+				MOBSCONTEXT* pMob =
+					reinterpret_cast<MOBSCONTEXT*>(
+						mobBase + static_cast<long long>(i) * kMobStride
+					);
 
-			// Regiune deja atinsa fara crash in scanele anterioare (>12MB);
-			// 2MB e comod si sigur.
-			const long SCAN = 0x200000;
-			const long maxFieldOff =
-				((hpMxOff > posOff) ? hpMxOff : posOff) + 8;
+				const int      species = pMob->sMobsData.iMonsterIndex;
+				const long long hp      = pMob->sParameters.iHP;
+				const long long hpMax   = pMob->sParameters.iHPMax;
+				const int      dead     = pMob->bIsDead ? 1 : 0;
+				const int      mpx      = pMob->sPosData.iPosXCur;
+				const int      mpy      = pMob->sPosData.iPosYCur;
+				const int      objId    =
+					static_cast<int>(pMob->objIdx.sObjIdxData);
 
-			int       found      = 0;
-			long      lastOff    = -0x100000;
-			int       nearestObj = -1;
-			long      nearestOff = -1;
-			long long nearestD2  = -1;
+				const bool alive =
+					species >= 1 && species <= 3663 &&
+					!dead &&
+					hp > 0 && hp <= hpMax && hpMax < 10000000;
 
-			for (long b = 0; b + maxFieldOff < SCAN; b += 4)
-			{
-				const int species =
-					*reinterpret_cast<int*>(mobBase + b + monOff);
-				if (species < 1 || species > 3663)
+				if (!alive)
 					continue;
 
-				const long long hp =
-					*reinterpret_cast<long long*>(mobBase + b + hpOff);
-				const long long hpmx =
-					*reinterpret_cast<long long*>(mobBase + b + hpMxOff);
-				if (hpmx <= 0 || hpmx > 10000000 || hp <= 0 || hp > hpmx)
-					continue;
+				++aliveCount;
 
-				// evita numararea aceluiasi mob de mai multe ori.
-				if (b - lastOff < 0x400)
-					continue;
+				const long long dx = static_cast<long long>(mpx) - plX;
+				const long long dy = static_cast<long long>(mpy) - plY;
+				const long long d2 = dx * dx + dy * dy;
 
-				const int mpx =
-					*reinterpret_cast<int*>(mobBase + b + posOff);
-				const int mpy =
-					*reinterpret_cast<int*>(mobBase + b + posOff + 4);
-
-				if (found < 24)
+				if (loggedCount < 12)
 				{
-					char line[320];
+					++loggedCount;
+					char line[256];
 					snprintf(line, sizeof(line),
-						"DIAG SIG[%d] off=0x%lX delta=0x%lX sp=%d hp=%lld/%lld "
-						"pos=(%d,%d)",
-						found, b, (lastOff < 0 ? 0L : b - lastOff),
-						species, hp, hpmx, mpx, mpy);
+						"DIAG mob slot=%d sp=%d hp=%lld/%lld obj=%d pos=(%d,%d) "
+						"dist=%lld",
+						i, species, hp, hpMax, objId, mpx, mpy,
+						static_cast<long long>(std::sqrt(
+							static_cast<double>(d2))));
 					Management::WriteLogs(kLogPath, line);
 				}
 
-				lastOff = b;
-				++found;
-
-				const long long dx = static_cast<long long>(mpx) - posX;
-				const long long dy = static_cast<long long>(mpy) - posY;
-				const long long d2 = dx * dx + dy * dy;
 				if (nearestD2 < 0 || d2 < nearestD2)
 				{
-					nearestD2  = d2;
-					nearestOff = b;
-					nearestObj =
-						*reinterpret_cast<int*>(mobBase + b + objOff);
+					nearestD2   = d2;
+					nearestSlot = i;
+					nearestSp   = species;
+					nearestObj  = objId;
 				}
 			}
 
 			char sum[256];
 			snprintf(sum, sizeof(sum),
-				"DIAG sigscan: found=%d nearestOff=0x%lX nearestObj=%d "
-				"dist=%lld player=(%d,%d)",
-				found, nearestOff, nearestObj,
+				"DIAG enum: alive=%d/%d nearestSlot=%d sp=%d obj=%d dist=%lld "
+				"player=(%d,%d)",
+				aliveCount, mobsCount, nearestSlot, nearestSp, nearestObj,
 				nearestD2 >= 0
 					? static_cast<long long>(std::sqrt(
 						static_cast<double>(nearestD2)))
 					: -1,
-				posX, posY);
+				plX, plY);
 			Management::WriteLogs(kLogPath, sum);
 		}
 		else
 		{
 			Management::WriteLogs(
 				kLogPath,
-				"DIAG sigscan: mobArray null, skip"
+				"DIAG enum: m_pMobsCtx invalid, skip"
 			);
 		}
 
