@@ -245,68 +245,86 @@ int AutoPlay::OnHeartbeat(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCt
 
 int AutoPlay::OnGMCommand(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCtx)
 {
-	ALIAS_PTR(USERCONTEXT, pUserCtx, pProcessDataCtx->pUserCtx);
-	ALIAS_PTR(USERDATACONTEXT, pUserDataCtx, pUserCtx->pData);
+    ALIAS_PTR(USERCONTEXT, pUserCtx, pProcessDataCtx->pUserCtx);
+    ALIAS_PTR(USERDATACONTEXT, pUserDataCtx, pUserCtx->pData);
 
-	const char* payload = pProcessDataCtx->cpPacket;
-	const int   len     = static_cast<int>(pProcessDataCtx->iLen);
+    const unsigned char* payload =
+        reinterpret_cast<const unsigned char*>(pProcessDataCtx->cpPacket);
 
-	// DIAG: logheaza ORICE comanda GM care ajunge la WorldSvr, cu continutul
-	// ei in ASCII. Daca scrii /autoplay in joc si NU apare linia asta, comanda
-	// nu ajunge la server ca CSC_GMCOMMAND (trebuie alt trigger).
-	{
-		char hex[256];
-		int pos = 0;
-	
-		for (int i = 0; i < len && pos < static_cast<int>(sizeof(hex)) - 4; ++i)
-		{
-			pos += snprintf(
-				hex + pos,
-				sizeof(hex) - pos,
-				"%02X ",
-				static_cast<unsigned char>(payload[i])
-			);
-		}
-	
-		hex[pos] = 0;
-	
-		char l[320];
-		snprintf(
-			l,
-			sizeof(l),
-			"DIAG GMCMD primit len=%d hex=%s",
-			len,
-			hex
-		);
-	
-		Management::WriteLogs(kLogPath, l);
-	}
+    const int len = static_cast<int>(pProcessDataCtx->iLen);
 
-	if (!pUserDataCtx->bIsActvteLink)
-		return P_OK;
+    // Diagnostic HEX
+    {
+        char hex[256];
+        int pos = 0;
 
-	// Layout-agnostic: daca payload-ul nu contine "autoplay", nu e comanda
-	// noastra => lasam procesarea GM normala sa continue (return P_OK).
-	if (!PayloadContains(payload, len, "autoplay"))
-		return P_OK;
+        for (int i = 0; i < len &&
+             pos < static_cast<int>(sizeof(hex)) - 4; ++i)
+        {
+            pos += snprintf(
+                hex + pos,
+                sizeof(hex) - pos,
+                "%02X ",
+                payload[i]
+            );
+        }
 
-	// "autoplay off" => OFF; altfel (inclusiv "autoplay on") => ON.
-	const bool on = !PayloadContains(payload, len, "off");
-	g_pAutoPlay->Set(pUserDataCtx->GetUserNum(), on);
+        hex[pos] = 0;
 
-	char line[128];
-	snprintf(line, sizeof(line), "GMCMD autoplay -> %s (user=%u char=%u)",
-		on ? "ON" : "OFF",
-		pUserDataCtx->GetUserNum(),
-		pUserDataCtx->GetCharacterIdx());
-	Management::WriteLogs(kLogPath, line);
+        char l[320];
+        snprintf(
+            l,
+            sizeof(l),
+            "DIAG GMCMD primit len=%d hex=%s",
+            len,
+            hex
+        );
 
-	// Feedback vizibil pe client: momentan doar in log. Pentru un mesaj de
-	// sistem cu text ai nevoie de structura S2C de system-message EP33; se
-	// poate adauga ulterior (sau un ACK crud via pUserCtx->SendErrorCode(...)).
+        Management::WriteLogs(kLogPath, l);
+    }
 
-	// Returnam P_OK ca sa nu deconectam. Daca vrei sa "consumi" comanda si sa
-	// nu ajunga la handler-ul GM de baza (ex. mesaj "unknown command"), poti
-	// schimba in P_FAIL dupa ce confirmi ca serverul trateaza asta ca "handled".
-	return P_OK;
+    if (!pUserDataCtx->bIsActvteLink)
+        return P_OK;
+
+    // Pachetul observat pentru /autoplay:
+    //
+    // 00-01 = magic
+    // 02-03 = packet length
+    // 04-07 = checksum
+    // 08-09 = CSC_GMCOMMAND
+    // 0A    = AutoPlay command id (1)
+    // 0B    = 1 ON / 0 OFF
+    //
+    if (len < 12)
+        return P_OK;
+
+    const BYTE commandId = payload[10];
+    const BYTE value     = payload[11];
+
+    // Comanda AutoPlay observata
+    if (commandId != 0x01)
+        return P_OK;
+
+    const bool on = (value != 0);
+
+    g_pAutoPlay->Set(
+        pUserDataCtx->GetUserNum(),
+        on
+    );
+
+    char line[128];
+    snprintf(
+        line,
+        sizeof(line),
+        "GMCMD autoplay -> %s (user=%u char=%u cmd=%u value=%u)",
+        on ? "ON" : "OFF",
+        pUserDataCtx->GetUserNum(),
+        pUserDataCtx->GetCharacterIdx(),
+        commandId,
+        value
+    );
+
+    Management::WriteLogs(kLogPath, line);
+
+    return P_OK;
 }
