@@ -532,33 +532,39 @@ int AutoPlay::OnHeartbeat(
 		}
 
 		// =========================================================
-		// Layout CWorld confirmat prin disassembly
+		// Layout CWorld corect pentru binarul EP33 64-bit.
+		// Sursa: GameStructs.h (struct CWorld) coroborat cu reperul
+		// iWorldIdx@0x194 care se potriveste si cu RE-ul:
 		//
-		// +0xC0 = pointer monster/NPC actor array
-		// +0xD8 = monster count
+		//   +0x194 = iWorldIdx
+		//   +0x19C = iMobsCount
+		//   +0x1B0 = m_pMobsCtx (pointer catre array-ul de mobs)
+		//
+		// Offset-urile vechi +0xC0/+0xD8 erau GRESITE: la runtime dadeau
+		// nil / pointer-catre-world, nu array+count.
 		// =========================================================
 
 		char* worldBase =
 			reinterpret_cast<char*>(pWorld);
 
-		void* mobArray =
-			*reinterpret_cast<void**>(
-				worldBase + 0xC0
-			);
+		const int worldIdx =
+			*reinterpret_cast<int*>(worldBase + 0x194);
 
 		const int mobsCount =
-			*reinterpret_cast<int*>(
-				worldBase + 0xD8
-			);
+			*reinterpret_cast<int*>(worldBase + 0x19C);
+
+		void* mobArray =
+			*reinterpret_cast<void**>(worldBase + 0x1B0);
 
 		char diag2[256];
 
 		snprintf(
 			diag2,
 			sizeof(diag2),
-			"DIAG real world test: [world+C0]=%p [world+D8]=%d",
-			mobArray,
-			mobsCount
+			"DIAG real world test: worldIdx=%d mobsCount=%d m_pMobsCtx=%p",
+			worldIdx,
+			mobsCount,
+			mobArray
 		);
 
 		Management::WriteLogs(
@@ -566,15 +572,48 @@ int AutoPlay::OnHeartbeat(
 			diag2
 		);
 
-		// Protectie de diagnostic
-		if (mobsCount < 0 || mobsCount > 10000)
+		// Dump brut world+0x180..0x1C0 (qword) ca sa confirmam vizual
+		// unde stau count-ul si pointer-ul de mobs pe binarul asta.
 		{
-			Management::WriteLogs(
-				kLogPath,
-				"DIAG real world test: mobsCount invalid"
+			char dump[512];
+			int p = 0;
+
+			for (int off = 0x180; off <= 0x1C0; off += 8)
+			{
+				const unsigned long long q =
+					*reinterpret_cast<unsigned long long*>(
+						worldBase + off
+					);
+
+				const int w = snprintf(
+					dump + p,
+					sizeof(dump) - p,
+					"+0x%X=%016llX ",
+					off,
+					q
+				);
+
+				if (w <= 0)
+					break;
+
+				p += w;
+
+				if (p >= static_cast<int>(sizeof(dump)) - 24)
+					break;
+			}
+
+			dump[p] = 0;
+
+			char line[600];
+
+			snprintf(
+				line,
+				sizeof(line),
+				"DIAG world dump: %s",
+				dump
 			);
 
-			return P_OK;
+			Management::WriteLogs(kLogPath, line);
 		}
 
 		// =========================================================
