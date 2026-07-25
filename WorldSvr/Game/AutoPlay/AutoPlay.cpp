@@ -8,14 +8,12 @@
 
 extern AutoPlay* g_pAutoPlay = AutoPlay::GetInstance();
 
-// Faza 1b: atac real. Layout-ul C2S_ATTCKTOMOBS si adresa handler-ului au fost
-// extrase din binarul WorldSvr EP33 (OnCSCAttckToMobs @ 0x007456C0):
-//   - pachet = 16 octeti
-//   - offset 0x0a: DWORD index tinta
-//   - offset 0x0e: BYTE tip obiect
-//   - offset 0x0f: BYTE flag world-mob
+// Faza 1b: atac real ACTIV in OnHeartbeat (enumerator -> cel mai apropiat mob
+// -> TryAttack, throttled ~1/s). Layout-ul C2S_ATTCKTOMOBS a fost confirmat din
+// pachetul REAL capturat cu probe pe 176. OnCSCAttckToMobs @ 0x007456C0.
 //
-// Ramane 0 pana confirmam complet Faza 1a.
+// Macro-ul de mai jos gateaza doar codul vechi din Tick() (neutilizat acum);
+// atacul real nu depinde de el.
 #define AUTOPLAY_ENABLE_ACTIONS 0
 
 namespace
@@ -232,21 +230,21 @@ int AutoPlay::FindNearestMob(
     return bestRow;
 }
 
-#if AUTOPLAY_ENABLE_ACTIONS
-
 #pragma pack(push, 1)
 
+// Layout C2S_ATTCKTOMOBS confirmat din pachetul REAL capturat (probe pe 176):
+//   E2 B7 | 10 00 | <checksum4> | B0 00 | 12 00 01 02 | 02 00
+//   @0x0A OBJIDXDATA target (sObjIdxData, bWorldMob, objectType)
+//   @0x0E attackType (0x02 = atac normal), @0x0F flag (0x00)
 struct C2S_ATTCKTOMOBS_PKT
 {
-    WORD  wMagicCode;
-    WORD  wPayLoadLen;
-    DWORD dwCheckSum;
-    WORD  wMainCmd;
-
-    WORD  wTargetIdx;
-    WORD  wTargetIdxHi;
-    BYTE  bTargetType;
-    BYTE  bWorldMob;
+    WORD       wMagicCode;    // 0x00
+    WORD       wPayLoadLen;   // 0x02
+    DWORD      dwCheckSum;    // 0x04
+    WORD       wMainCmd;      // 0x08
+    OBJIDXDATA target;        // 0x0A (4 octeti)
+    BYTE       bAttackType;   // 0x0E
+    BYTE       bFlag;         // 0x0F
 };
 
 #pragma pack(pop)
@@ -266,6 +264,9 @@ static OnCSCAttckToMobs_t OnCSCAttckToMobs =
         0x007456C0
     );
 
+// Trimite un atac normal catre pMob, replicand EXACT pachetul clientului:
+// copiem OBJIDXDATA-ul mobului ca tinta + attackType 0x02 + flag 0x00.
+// Checksum-ul e ignorat cand chemam handler-ul direct (validat in net layer).
 static void TryAttack(
     USERCONTEXT* pUserCtx,
     MOBSCONTEXT* pMob
@@ -273,50 +274,21 @@ static void TryAttack(
 {
     C2S_ATTCKTOMOBS_PKT pkt = {};
 
-    pkt.wMagicCode =
-        MAGIC_CODE;
-
-    pkt.wPayLoadLen =
-        sizeof(pkt);
-
-    pkt.wMainCmd =
-        MAINCMD_VALUE_EX::CSC_ATTCKTOMOBS;
-
-    pkt.wTargetIdx =
-        static_cast<WORD>(
-            pMob->objIdx.sObjIdxData
-        );
-
-    pkt.wTargetIdxHi = 0;
-
-    pkt.bTargetType =
-        pMob->objIdx.objectType;
-
-    pkt.bWorldMob =
-        pMob->objIdx.bWorldMob;
+    pkt.wMagicCode  = MAGIC_CODE;                        // 0xB7E2
+    pkt.wPayLoadLen = sizeof(pkt);                       // 16
+    pkt.dwCheckSum  = 0;
+    pkt.wMainCmd    = MAINCMD_VALUE_EX::CSC_ATTCKTOMOBS; // 176
+    pkt.target      = pMob->objIdx;                      // OBJIDXDATA complet
+    pkt.bAttackType = 0x02;                              // atac normal
+    pkt.bFlag       = 0x00;
 
     PROCESSDATACONTEXT ctx = {};
+    ctx.pUserCtx = reinterpret_cast<int*>(pUserCtx);
+    ctx.cpPacket = reinterpret_cast<char*>(&pkt);
+    ctx.iLen     = sizeof(pkt);
 
-    ctx.pUserCtx =
-        reinterpret_cast<int*>(
-            pUserCtx
-        );
-
-    ctx.cpPacket =
-        reinterpret_cast<char*>(
-            &pkt
-        );
-
-    ctx.iLen =
-        sizeof(pkt);
-
-    OnCSCAttckToMobs(
-        0,
-        &ctx
-    );
+    OnCSCAttckToMobs(0, &ctx);
 }
-
-#endif
 
 void AutoPlay::Tick(
     USERCONTEXT* pUserCtx,
@@ -640,10 +612,11 @@ int AutoPlay::OnHeartbeat(
 		{
 			int       aliveCount  = 0;
 			int       loggedCount = 0;
-			int       nearestSlot = -1;
-			int       nearestSp   = -1;
-			int       nearestObj  = -1;
-			long long nearestD2   = -1;
+			int          nearestSlot = -1;
+			int          nearestSp   = -1;
+			int          nearestObj  = -1;
+			long long    nearestD2   = -1;
+			MOBSCONTEXT* nearestMob  = nullptr;
 
 			for (int i = 0; i < mobsCount; ++i)
 			{
@@ -694,6 +667,7 @@ int AutoPlay::OnHeartbeat(
 					nearestSlot = i;
 					nearestSp   = species;
 					nearestObj  = objId;
+					nearestMob  = pMob;
 				}
 			}
 
@@ -708,6 +682,34 @@ int AutoPlay::OnHeartbeat(
 					: -1,
 				plX, plY);
 			Management::WriteLogs(kLogPath, sum);
+
+			// -------- ATAC (Faza 1b) --------
+			// Atacam cel mai apropiat mob viu daca e in raza. Throttle la
+			// ~1/secunda pentru primul test controlat. Handler-ul nativ face
+			// propria verificare de raza (<=6), deci un atac prea departe e
+			// respins fara efect (nu crapa).
+			const long long kAttackRange = 10;
+			if (nearestMob &&
+				nearestD2 >= 0 &&
+				nearestD2 <= kAttackRange * kAttackRange)
+			{
+				static time_t s_lastAtk = 0;
+				const time_t now = time(nullptr);
+				if (now != s_lastAtk)
+				{
+					s_lastAtk = now;
+
+					TryAttack(pUserCtx, nearestMob);
+
+					char al[192];
+					snprintf(al, sizeof(al),
+						"DIAG ATTACK sent slot=%d obj=%d sp=%d dist=%lld",
+						nearestSlot, nearestObj, nearestSp,
+						static_cast<long long>(std::sqrt(
+							static_cast<double>(nearestD2))));
+					Management::WriteLogs(kLogPath, al);
+				}
+			}
 		}
 		else
 		{
@@ -716,8 +718,6 @@ int AutoPlay::OnHeartbeat(
 				"DIAG enum: m_pMobsCtx invalid, skip"
 			);
 		}
-
-		// STOP aici momentan. Doar diagnostic; fara atac/miscare.
 	}
 
     return P_OK;
