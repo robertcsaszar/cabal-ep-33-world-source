@@ -464,17 +464,16 @@ int AutoPlay::OnHeartbeat(
         }
     }
 
-    if (
-        g_pAutoPlay->IsEnabled(
-            pUserDataCtx->GetUserNum()
-        )
-    )
-    {
-        g_pAutoPlay->Tick(
-            pUserCtx,
-            pUserDataCtx
-        );
-    }
+    if (g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()))
+{
+    Management::WriteLogs(
+        kLogPath,
+        "DIAG autoplay ON - Tick dezactivat temporar"
+    );
+
+    // TEMP: dezactivat pana verificam structurile World/Mob
+    // g_pAutoPlay->Tick(pUserCtx, pUserDataCtx);
+}
 
     return P_OK;
 }
