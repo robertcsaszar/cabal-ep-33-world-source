@@ -521,6 +521,27 @@ int AutoPlay::OnHeartbeat(
 			kLogPath,
 			diag2
 		);
+
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG Tick test: inainte de iMobsCount"
+		);
+		
+		int mobsCount = pWorld->iMobsCount;
+		
+		char diag3[160];
+		
+		snprintf(
+			diag3,
+			sizeof(diag3),
+			"DIAG Tick test: iMobsCount=%d",
+			mobsCount
+		);
+		
+		Management::WriteLogs(
+			kLogPath,
+			diag3
+		);
 	}
 
     return P_OK;
