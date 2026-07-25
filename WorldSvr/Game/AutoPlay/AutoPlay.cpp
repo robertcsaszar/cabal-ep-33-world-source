@@ -255,16 +255,30 @@ int AutoPlay::OnGMCommand(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCt
 	// ei in ASCII. Daca scrii /autoplay in joc si NU apare linia asta, comanda
 	// nu ajunge la server ca CSC_GMCOMMAND (trebuie alt trigger).
 	{
-		char snip[80];
-		int j = 0;
-		for (int i = 0; i < len && j < static_cast<int>(sizeof(snip)) - 1; ++i)
+		char hex[256];
+		int pos = 0;
+	
+		for (int i = 0; i < len && pos < static_cast<int>(sizeof(hex)) - 4; ++i)
 		{
-			const char c = payload[i];
-			snip[j++] = (c >= 32 && c < 127) ? c : '.';
+			pos += snprintf(
+				hex + pos,
+				sizeof(hex) - pos,
+				"%02X ",
+				static_cast<unsigned char>(payload[i])
+			);
 		}
-		snip[j] = 0;
-		char l[160];
-		snprintf(l, sizeof(l), "DIAG GMCMD primit len=%d ascii='%s'", len, snip);
+	
+		hex[pos] = 0;
+	
+		char l[320];
+		snprintf(
+			l,
+			sizeof(l),
+			"DIAG GMCMD primit len=%d hex=%s",
+			len,
+			hex
+		);
+	
 		Management::WriteLogs(kLogPath, l);
 	}
 
