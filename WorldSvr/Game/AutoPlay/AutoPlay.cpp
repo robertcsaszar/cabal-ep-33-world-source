@@ -644,31 +644,41 @@ int AutoPlay::OnHeartbeat(
 						mobBase + static_cast<long long>(i) * kMobStride
 					);
 
-				const int idx    = static_cast<int>(pMob->iIndex);
-				const int objId  = static_cast<int>(pMob->objIdx.sObjIdxData);
-				const int hpCur  = static_cast<int>(pMob->sParameters.iHP);
-				const int hpMax  = static_cast<int>(pMob->sParameters.iHPMax);
-				const int dead   = pMob->bIsDead ? 1 : 0;
-				const int mpx    = pMob->sPosData.iPosXCur;
-				const int mpy    = pMob->sPosData.iPosYCur;
+				const int      monIdx = pMob->sMobsData.iMonsterIndex;
+				const int      phase  = static_cast<int>(pMob->_mpMPhase);
+				const long long hpCur = pMob->sParameters.iHP;
+				const long long hpMax = pMob->sParameters.iHPMax;
+				const int      dead   = pMob->bIsDead ? 1 : 0;
+				const int      objId  = static_cast<int>(pMob->objIdx.sObjIdxData);
+				const int      mpx    = pMob->sPosData.iPosXCur;
+				const int      mpy    = pMob->sPosData.iPosYCur;
 
-				const bool used = (idx != 0) || (objId != 0) || (hpCur != 0);
+				// "Slot in uz" dupa criteriul jocului: e intr-o faza activa
+				// (_mpMPhase != MP_NONE) SI are un species/monster index valid.
+				// Asta elimina sloturile libere din pool (care contineau
+				// floats/pointeri la offset-ul de HP).
+				const bool used =
+					(phase != 0) &&
+					(monIdx > 0 && monIdx < 100000) &&
+					(hpMax > 0 && hpMax < 100000000);
 
-				// Logam primele 5 sloturi FOLOSITE ca sa vedem layout-ul real.
-				if (used && usedCount < 5)
+				if (used && usedCount < 6)
 				{
 					char line[320];
 					snprintf(
 						line,
 						sizeof(line),
-						"DIAG mob used[%d] idx=%d objId=%d hp=%d/%d dead=%d pos=(%d,%d)",
-						i, idx, objId, hpCur, hpMax, dead, mpx, mpy
+						"DIAG mob real[%d] monIdx=%d phase=%d hp=%lld/%lld "
+						"dead=%d objId=%d pos=(%d,%d)",
+						i, monIdx, phase, hpCur, hpMax, dead, objId, mpx, mpy
 					);
 					Management::WriteLogs(kLogPath, line);
 				}
 
-				if (used)
-					++usedCount;
+				if (!used)
+					continue;
+
+				++usedCount;
 
 				if (dead || hpCur <= 0)
 					continue;
@@ -693,7 +703,7 @@ int AutoPlay::OnHeartbeat(
 			snprintf(
 				sum,
 				sizeof(sum),
-				"DIAG scan: used=%d alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld",
+				"DIAG scan: real=%d alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld player=(%d,%d)",
 				usedCount,
 				aliveCount,
 				mobsCount,
@@ -702,7 +712,9 @@ int AutoPlay::OnHeartbeat(
 				nearestD2 >= 0
 					? static_cast<long long>(std::sqrt(
 						static_cast<double>(nearestD2)))
-					: -1
+					: -1,
+				posX,
+				posY
 			);
 			Management::WriteLogs(kLogPath, sum);
 		}
