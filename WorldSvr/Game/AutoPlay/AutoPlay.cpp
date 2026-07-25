@@ -617,30 +617,51 @@ int AutoPlay::OnHeartbeat(
 		}
 
 		// =========================================================
-		// Enumerare DIRECTA a mobs prin m_pMobsCtx (world+0x1B0).
-		// Stride confirmat la runtime = 0xDF90 (adresele slot-urilor
-		// cresc exact cu 0xDF90). Citim fiecare slot ca MOBSCONTEXT*
-		// din header (acelasi tip ca playerul, ale carui campuri au dat
-		// deja valori corecte) -> nu mai ghicim offset-uri.
+		// Slot != rand mmap => stride 0xDF90 era GRESIT (doar slot 0,
+		// la offset 0, citea corect; restul dezaliniat = gunoi).
+		// Testam stride = sizeof(MOBSCONTEXT) real din header, ramanand
+		// in regiunea deja citita fara crash (226 * 0xDF90).
 		// =========================================================
 
 		char* mobBase =
 			reinterpret_cast<char*>(mobArray);
 
-		const long long kMobStride = 0xDF90;
+		{
+			char sz[256];
+			snprintf(
+				sz,
+				sizeof(sz),
+				"DIAG sizes: MOBSCONTEXT=%zu (0x%zX) CREATUREBASE=%zu "
+				"POSDATA=%zu PARAMS=%zu",
+				sizeof(MOBSCONTEXT), sizeof(MOBSCONTEXT),
+				sizeof(CREATUREBASE), sizeof(POSITIONDATA),
+				sizeof(PARAMETERS)
+			);
+			Management::WriteLogs(kLogPath, sz);
+		}
 
-		if (mobBase && mobsCount > 0 && mobsCount <= 4096)
+		const long long kSafeBytes = 226LL * 0xDF90;
+		const long long recSize    =
+			static_cast<long long>(sizeof(MOBSCONTEXT));
+		const long long stride =
+			(recSize >= 0x1000 && recSize <= 0x20000) ? recSize : 0xDF90;
+
+		int maxSlots = static_cast<int>(kSafeBytes / stride);
+		if (maxSlots > mobsCount)
+			maxSlots = mobsCount;
+
+		if (mobBase && maxSlots > 0)
 		{
 			int       speciesCount = 0;  // sloturi cu un species id plauzibil
 			int       aliveCount   = 0;  // mob viu strict (candidat de tinta)
 			int       nearestRow   = -1;
 			long long nearestD2    = -1;
 
-			for (int i = 0; i < mobsCount; ++i)
+			for (int i = 0; i < maxSlots; ++i)
 			{
 				MOBSCONTEXT* pMob =
 					reinterpret_cast<MOBSCONTEXT*>(
-						mobBase + static_cast<long long>(i) * kMobStride
+						mobBase + static_cast<long long>(i) * stride
 					);
 
 				const int      monIdx = pMob->sMobsData.iMonsterIndex;
@@ -652,12 +673,8 @@ int AutoPlay::OnHeartbeat(
 				const int      mpx    = pMob->sPosData.iPosXCur;
 				const int      mpy    = pMob->sPosData.iPosYCur;
 
-				// PLASA LARGA de logging: orice slot cu un species id plauzibil,
-				// indiferent de hp/phase. Daca mobii din jur (Rabithorn/Scorlug)
-				// sunt in acest array, ii vedem aici cu toate campurile.
 				const bool hasSpecies = (monIdx > 0 && monIdx < 100000);
 
-				// ALIVE strict: mob real, viu, atacabil.
 				const bool aliveStrict =
 					hasSpecies &&
 					!dead &&
@@ -666,13 +683,15 @@ int AutoPlay::OnHeartbeat(
 					(phase > 0 && phase < 64) &&
 					(mpx != 0 || mpy != 0);
 
-				if (hasSpecies && speciesCount < 20)
+				// Loghez primele 6 sloturi RAW (sa vad daca slot 1..5 devin
+				// mobi curati cu noul stride) + orice slot cu species valid.
+				if (i < 6 || (hasSpecies && speciesCount < 20))
 				{
 					char line[320];
 					snprintf(
 						line,
 						sizeof(line),
-						"DIAG cand[%d] monIdx=%d phase=%d hp=%lld/%lld dead=%d "
+						"DIAG slot[%d] monIdx=%d phase=%d hp=%lld/%lld dead=%d "
 						"objId=%d pos=(%d,%d) alive=%d",
 						i, monIdx, phase, hpCur, hpMax, dead, objId, mpx, mpy,
 						aliveStrict ? 1 : 0
@@ -705,10 +724,12 @@ int AutoPlay::OnHeartbeat(
 			snprintf(
 				sum,
 				sizeof(sum),
-				"DIAG scan: species=%d alive=%d/%d nearestRow=%d dist=%lld player=(%d,%d)",
+				"DIAG scan: stride=0x%llX slots=%d species=%d alive=%d "
+				"nearestRow=%d dist=%lld player=(%d,%d)",
+				stride,
+				maxSlots,
 				speciesCount,
 				aliveCount,
-				mobsCount,
 				nearestRow,
 				nearestD2 >= 0
 					? static_cast<long long>(std::sqrt(
