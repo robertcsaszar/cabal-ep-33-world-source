@@ -467,34 +467,46 @@ int AutoPlay::OnHeartbeat(
     if (g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()))
 	{
 		// =========================================================
-		// AUTOPLAY DIAGNOSTIC - native World_GetActorByIndex test
+		// Folosim offseturile confirmate din binarul WorldSvr EP33
 		// =========================================================
 
+		char* playerBase =
+			reinterpret_cast<char*>(pUserDataCtx);
+
+		// Pozitia reala a playerului:
+		// +0x120 = PosX
+		// +0x124 = PosY
+		const int posX =
+			*reinterpret_cast<int*>(
+				playerBase + 0x120
+			);
+
+		const int posY =
+			*reinterpret_cast<int*>(
+				playerBase + 0x124
+			);
+
+		// World* real:
+		// +0x190 = pWorld
+		CWorld* pWorld =
+			*reinterpret_cast<CWorld**>(
+				playerBase + 0x190
+			);
+
+		// HP ramane momentan din structura actuala,
+		// fiindca am confirmat deja ca valorile sunt corecte.
 		const long long hp =
 			pUserDataCtx->sParameters.iHP;
 
 		const long long hpMax =
 			pUserDataCtx->sParameters.iHPMax;
 
-		const int posX =
-			pUserDataCtx->sPosData.iPosXCur;
-
-		const int posY =
-			pUserDataCtx->sPosData.iPosYCur;
-
-		CWorld* pWorld =
-			pUserDataCtx->sPosData.pWorld;
-
-		// ---------------------------------------------------------
-		// 1. User / HP / position / world
-		// ---------------------------------------------------------
-
 		char diag1[256];
 
 		snprintf(
 			diag1,
 			sizeof(diag1),
-			"DIAG native actor test: user=%u char=%u hp=%lld/%lld pos=(%d,%d) world=%p",
+			"DIAG real world test: user=%u char=%u hp=%lld/%lld pos=(%d,%d) world=%p",
 			pUserDataCtx->GetUserNum(),
 			pUserDataCtx->GetCharacterIdx(),
 			hp,
@@ -513,19 +525,18 @@ int AutoPlay::OnHeartbeat(
 		{
 			Management::WriteLogs(
 				kLogPath,
-				"DIAG native actor test: pWorld este NULL"
+				"DIAG real world test: pWorld NULL"
 			);
 
 			return P_OK;
 		}
 
-		// ---------------------------------------------------------
-		// 2. Citim layout-ul CWorld confirmat din WorldSvr
+		// =========================================================
+		// Layout CWorld confirmat prin disassembly
 		//
-		// +0xC0 = monster/NPC actor array pointer
-		// +0xD8 = monster/NPC count
-		// stride = 0xDF90
-		// ---------------------------------------------------------
+		// +0xC0 = pointer monster/NPC actor array
+		// +0xD8 = monster count
+		// =========================================================
 
 		char* worldBase =
 			reinterpret_cast<char*>(pWorld);
@@ -545,7 +556,7 @@ int AutoPlay::OnHeartbeat(
 		snprintf(
 			diag2,
 			sizeof(diag2),
-			"DIAG native actor test: [world+C0]=%p [world+D8]=%d",
+			"DIAG real world test: [world+C0]=%p [world+D8]=%d",
 			mobArray,
 			mobsCount
 		);
@@ -555,24 +566,26 @@ int AutoPlay::OnHeartbeat(
 			diag2
 		);
 
-		// ---------------------------------------------------------
-		// 3. Accessor NATIV WorldSvr
-		//
-		// Disassembly:
-		//
+		// Protectie de diagnostic
+		if (mobsCount < 0 || mobsCount > 10000)
+		{
+			Management::WriteLogs(
+				kLogPath,
+				"DIAG real world test: mobsCount invalid"
+			);
+
+			return P_OK;
+		}
+
+		// =========================================================
+		// Accessor NATIV din WorldSvr
 		// 0x00800B50
 		//
-		// rdi = CWorld*
+		// rdi = World*
 		// esi = actor index
 		//
-		// index <= 0x0FFF -> player
-		// index >= 0x1000 -> monster/NPC
-		//
-		// Pentru monster:
-		//
-		// realIndex = index - 0x1000
-		// ptr = *(world + 0xC0) + realIndex * 0xDF90
-		// ---------------------------------------------------------
+		// >= 0x1000 => monster / NPC
+		// =========================================================
 
 		typedef void* (*World_GetActorByIndex_t)(
 			void* pWorld,
@@ -586,15 +599,10 @@ int AutoPlay::OnHeartbeat(
 
 		Management::WriteLogs(
 			kLogPath,
-			"DIAG native actor test: inainte de World_GetActorByIndex(world, 0x1000)"
+			"DIAG real world test: before actor 0x1000"
 		);
 
-		// ---------------------------------------------------------
-		// IMPORTANT:
-		// momentan testam DOAR primul actor monster.
-		// NU dereferentiem pointerul returnat.
-		// ---------------------------------------------------------
-
+		// Primul monster/NPC actor
 		void* mob0 =
 			World_GetActorByIndex(
 				pWorld,
@@ -606,7 +614,7 @@ int AutoPlay::OnHeartbeat(
 		snprintf(
 			diag3,
 			sizeof(diag3),
-			"DIAG native actor test: actor[0x1000]=%p",
+			"DIAG real world test: actor[0x1000]=%p",
 			mob0
 		);
 
@@ -615,18 +623,11 @@ int AutoPlay::OnHeartbeat(
 			diag3
 		);
 
-		// =========================================================
-		// STOP TEST
-		//
-		// NU:
-		//   - apelam GetMobPtr()
-		//   - citim HP-ul mobului
-		//   - citim pozitia mobului
-		//   - iteram prin mobsCount
-		//   - atacam
-		//
-		// Mai intai confirmam ca World_GetActorByIndex() este safe.
-		// =========================================================
+		// STOP aici momentan.
+		// NU dereferentiem mob0 inca.
+		// NU apelam GetMobPtr().
+		// NU apelam Tick().
+		// NU activam atacul.
 	}
 
     return P_OK;
