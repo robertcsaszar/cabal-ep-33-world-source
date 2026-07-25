@@ -528,19 +528,40 @@ int AutoPlay::OnHeartbeat(
 		);
 		
 		int mobsCount = pWorld->iMobsCount;
-		
+
 		char diag3[160];
-		
+
 		snprintf(
 			diag3,
 			sizeof(diag3),
 			"DIAG Tick test: iMobsCount=%d",
 			mobsCount
 		);
-		
+
 		Management::WriteLogs(
 			kLogPath,
 			diag3
+		);
+
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG Tick test: inainte de GetMobPtr(0)"
+		);
+
+		MOBSCONTEXT* pMob0 = pWorld->GetMobPtr(0);
+
+		char diag4[160];
+
+		snprintf(
+			diag4,
+			sizeof(diag4),
+			"DIAG Tick test: GetMobPtr(0)=%p",
+			static_cast<void*>(pMob0)
+		);
+
+		Management::WriteLogs(
+			kLogPath,
+			diag4
 		);
 	}
 
