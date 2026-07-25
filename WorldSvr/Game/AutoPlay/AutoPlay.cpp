@@ -50,11 +50,11 @@ void AutoPlay::Init()
 
     // Probe non-destructiv pentru canalele de mesaj cunoscute din Protodefs.h.
     // Handlerul nostru returneaza mereu P_OK, deci procedurile native raman active.
-    // Trigger server-side fara modificare de client.
-    // REQ_PARTYMESSAG = 197 corespunde handlerului nativ OnCSCPartyMessage
-    // identificat in WorldSvr la 0x008D94F0. Mesajul de party contine textul
-    // trimis de client, deci putem folosi !autoplay on/off.
-    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_PARTYMESSAG, OnMessageProbe);
+    // Trigger server-side fara modificare de client, pe NORMAL CHAT.
+    // REQ_MESSAGEEVNT = 195 este pachetul client -> WorldSvr pentru mesajul normal,
+    // iar NFY_MESSAGEEVNT = 217 este notificarea asociata. Folosim !autoplay
+    // pentru a evita parserul client-side al comenzilor care incep cu '/'.
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_MESSAGEEVNT, OnMessageProbe);
 
     // Pastram si probele cunoscute pentru PM / loud message; sunt non-destructive.
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGCHANNEL, OnMessageProbe);
@@ -64,7 +64,7 @@ void AutoPlay::Init()
 
     Management::WriteLogs(
         kLogPath,
-        "AutoPlay::Init(): party trigger 197 + message probes 393/395/396/483 registered"
+        "AutoPlay::Init(): normal chat trigger 195 + message probes 393/395/396/483 registered"
     );
 }
 
