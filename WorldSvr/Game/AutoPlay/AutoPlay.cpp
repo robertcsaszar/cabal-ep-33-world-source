@@ -221,6 +221,22 @@ int AutoPlay::OnHeartbeat(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCt
 	if (!pUserDataCtx->bIsActvteLink)
 		return P_OK;
 
+	// DIAG: dovedeste ca handler-ul de heartbeat e apelat si ca plugin-ul
+	// primeste pachete (throttle ~5s, global). Chiar si cand autoplay e OFF.
+	{
+		static long lastDiag = 0;
+		const long now = static_cast<long>(time(nullptr));
+		if (now - lastDiag >= 5)
+		{
+			lastDiag = now;
+			char l[128];
+			snprintf(l, sizeof(l), "DIAG heartbeat OK user=%u autoplay=%d",
+				pUserDataCtx->GetUserNum(),
+				g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()) ? 1 : 0);
+			Management::WriteLogs(kLogPath, l);
+		}
+	}
+
 	if (g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()))
 		g_pAutoPlay->Tick(pUserCtx, pUserDataCtx);
 
@@ -232,11 +248,28 @@ int AutoPlay::OnGMCommand(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCt
 	ALIAS_PTR(USERCONTEXT, pUserCtx, pProcessDataCtx->pUserCtx);
 	ALIAS_PTR(USERDATACONTEXT, pUserDataCtx, pUserCtx->pData);
 
-	if (!pUserDataCtx->bIsActvteLink)
-		return P_OK;
-
 	const char* payload = pProcessDataCtx->cpPacket;
 	const int   len     = static_cast<int>(pProcessDataCtx->iLen);
+
+	// DIAG: logheaza ORICE comanda GM care ajunge la WorldSvr, cu continutul
+	// ei in ASCII. Daca scrii /autoplay in joc si NU apare linia asta, comanda
+	// nu ajunge la server ca CSC_GMCOMMAND (trebuie alt trigger).
+	{
+		char snip[80];
+		int j = 0;
+		for (int i = 0; i < len && j < static_cast<int>(sizeof(snip)) - 1; ++i)
+		{
+			const char c = payload[i];
+			snip[j++] = (c >= 32 && c < 127) ? c : '.';
+		}
+		snip[j] = 0;
+		char l[160];
+		snprintf(l, sizeof(l), "DIAG GMCMD primit len=%d ascii='%s'", len, snip);
+		Management::WriteLogs(kLogPath, l);
+	}
+
+	if (!pUserDataCtx->bIsActvteLink)
+		return P_OK;
 
 	// Layout-agnostic: daca payload-ul nu contine "autoplay", nu e comanda
 	// noastra => lasam procesarea GM normala sa continue (return P_OK).
