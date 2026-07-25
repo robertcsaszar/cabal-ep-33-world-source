@@ -47,6 +47,18 @@ void AutoPlay::Init()
         MAINCMD_VALUE_EX::CSC_GMCOMMAND,
         OnGMCommand
     );
+
+    // Probe non-destructiv pentru canalele de mesaj cunoscute din Protodefs.h.
+    // Handlerul nostru returneaza mereu P_OK, deci procedurile native raman active.
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGCHANNEL, OnMessageProbe);
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGSERVER, OnMessageProbe);
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGSERVER2, OnMessageProbe);
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::C2S_SENDPMMESSAGE, OnMessageProbe);
+
+    Management::WriteLogs(
+        kLogPath,
+        "AutoPlay::Init(): message probes 393/395/396/483 registered"
+    );
 }
 
 bool AutoPlay::PayloadContains(
@@ -81,6 +93,38 @@ bool AutoPlay::PayloadContains(
                 break;
         }
 
+        if (k == tlen)
+            return true;
+    }
+
+    return false;
+}
+
+bool AutoPlay::PayloadContainsUtf16LE(
+    const char* buf,
+    int len,
+    const char* token
+)
+{
+    if (!buf || len <= 0 || !token)
+        return false;
+
+    const int tlen = static_cast<int>(strlen(token));
+    if (tlen == 0 || (tlen * 2) > len)
+        return false;
+
+    for (int i = 0; i + (tlen * 2) <= len; ++i)
+    {
+        int k = 0;
+        for (; k < tlen; ++k)
+        {
+            const unsigned char lo = static_cast<unsigned char>(buf[i + k * 2]);
+            const unsigned char hi = static_cast<unsigned char>(buf[i + k * 2 + 1]);
+            const unsigned char want = static_cast<unsigned char>(token[k]);
+
+            if (hi != 0 || tolower(lo) != tolower(want))
+                break;
+        }
         if (k == tlen)
             return true;
     }
@@ -564,6 +608,114 @@ int AutoPlay::OnGMCommand(
             line
         );
     }
+
+    return P_OK;
+}
+
+int AutoPlay::OnMessageProbe(
+    int* pProcessLayer,
+    PROCESSDATACONTEXT* pProcessDataCtx
+)
+{
+    ALIAS_PTR(USERCONTEXT, pUserCtx, pProcessDataCtx->pUserCtx);
+    ALIAS_PTR(USERDATACONTEXT, pUserDataCtx, pUserCtx->pData);
+
+    const char* raw = pProcessDataCtx->cpPacket;
+    const int len = static_cast<int>(pProcessDataCtx->iLen);
+
+    if (!raw || len <= 0)
+        return P_OK;
+
+    const unsigned char* packet =
+        reinterpret_cast<const unsigned char*>(raw);
+
+    WORD mainCmd = 0;
+    if (len >= static_cast<int>(sizeof(C2S_HEADER)))
+    {
+        const C2S_HEADER* hdr =
+            reinterpret_cast<const C2S_HEADER*>(raw);
+        mainCmd = hdr->wMainCmd;
+    }
+
+    char hex[768];
+    char ascii[384];
+    int hpos = 0;
+    int apos = 0;
+
+    for (int i = 0; i < len; ++i)
+    {
+        if (hpos < static_cast<int>(sizeof(hex)) - 4)
+        {
+            const int written = snprintf(
+                hex + hpos,
+                sizeof(hex) - hpos,
+                "%02X ",
+                packet[i]
+            );
+            if (written > 0)
+                hpos += written;
+        }
+
+        if (apos < static_cast<int>(sizeof(ascii)) - 1)
+        {
+            const unsigned char c = packet[i];
+            ascii[apos++] =
+                (c >= 32 && c < 127) ? static_cast<char>(c) : '.';
+        }
+    }
+
+    hex[hpos] = 0;
+    ascii[apos] = 0;
+
+    char line[1400];
+    snprintf(
+        line,
+        sizeof(line),
+        "DIAG MSG maincmd=%u user=%u char=%u len=%d ascii='%s' hex=%s",
+        static_cast<unsigned int>(mainCmd),
+        pUserDataCtx->GetUserNum(),
+        pUserDataCtx->GetCharacterIdx(),
+        len,
+        ascii,
+        hex
+    );
+    Management::WriteLogs(kLogPath, line);
+
+    if (!pUserDataCtx->bIsActvteLink)
+        return P_OK;
+
+    const bool hasAutoPlay =
+        PayloadContains(raw, len, "!autoplay") ||
+        PayloadContainsUtf16LE(raw, len, "!autoplay");
+
+    if (!hasAutoPlay)
+        return P_OK;
+
+    const bool hasOff =
+        PayloadContains(raw, len, "off") ||
+        PayloadContainsUtf16LE(raw, len, "off");
+
+    const bool hasOn =
+        PayloadContains(raw, len, "on") ||
+        PayloadContainsUtf16LE(raw, len, "on");
+
+    if (!hasOn && !hasOff)
+        return P_OK;
+
+    const bool on = hasOn && !hasOff;
+    g_pAutoPlay->Set(pUserDataCtx->GetUserNum(), on);
+
+    char stateLine[192];
+    snprintf(
+        stateLine,
+        sizeof(stateLine),
+        "MESSAGE autoplay -> %s (maincmd=%u user=%u char=%u)",
+        on ? "ON" : "OFF",
+        static_cast<unsigned int>(mainCmd),
+        pUserDataCtx->GetUserNum(),
+        pUserDataCtx->GetCharacterIdx()
+    );
+    Management::WriteLogs(kLogPath, stateLine);
 
     return P_OK;
 }

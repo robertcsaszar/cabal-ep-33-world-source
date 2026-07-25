@@ -48,12 +48,16 @@ public:
 	// Inregistrat pe CSC_GMCOMMAND; detecteaza "/autoplay on|off" din payload.
 	static int OnGMCommand(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCtx);
 
+	// Probe pentru pachetele de mesaj care trec prin WorldSvr.
+	static int OnMessageProbe(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCtx);
+
 private:
 	void Tick(USERCONTEXT* pUserCtx, USERDATACONTEXT* pUserDataCtx);
 
 	// Cauta un token ASCII (case-insensitive) intr-un buffer marginit. Folosit
 	// pentru a parsa comanda fara a cunoaste layout-ul exact al pachetului GM.
 	static bool PayloadContains(const char* buf, int len, const char* token);
+	static bool PayloadContainsUtf16LE(const char* buf, int len, const char* token);
 
 	// Returneaza randul (row) celui mai apropiat mob viu in raza data, sau -1.
 	// Distanta patratica minima gasita este pusa in *outDistSq (daca != null).
