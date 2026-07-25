@@ -11,7 +11,7 @@
 #   CXX        compilatorul (default: clang++, altfel g++)
 #   CONTAINER  numele containerului           (default: cabal_main)
 #   CORE_DIR   directorul de lucru WorldSvr   (default: /etc/cabal_etc/core)
-#   PROGRAM    programul supervisor de restart(default: WorldSvr_01_04)
+#   PROGRAM    programul supervisor de restart(default: WorldSvr_01_01)
 #
 # Exemplu: CONTAINER=cabal_test ./build.sh deploy
 #
@@ -63,7 +63,7 @@ command -v file >/dev/null 2>&1 && file "$OUT" || true
 if [[ "${1:-}" == "deploy" ]]; then
     CONTAINER="${CONTAINER:-cabal_main}"
     CORE_DIR="${CORE_DIR:-/etc/cabal_etc/core}"
-    PROGRAM="${PROGRAM:-WorldSvr_01_04}"
+    PROGRAM="${PROGRAM:-WorldSvr_01_01}"
 
     if ! command -v docker >/dev/null 2>&1; then
         echo "EROARE: docker nu e disponibil pentru deploy." >&2
