@@ -617,15 +617,11 @@ int AutoPlay::OnHeartbeat(
 		}
 
 		// =========================================================
-		// Enumerare DIRECTA a mobs prin m_pMobsCtx (world+0x1B0),
-		// stride = 0xDF90 (dimensiunea unui actor, confirmata din RE).
-		// NU folosim accesorul nativ 0x00800B50: la runtime a intors nil
-		// fiindca intern citeste offset-urile gresite 0xC0/0xD8.
-		//
-		// Offset-uri camp mob (din RE, MOBSCONTEXT/CREATUREBASE):
-		//   +0x120/+0x124 pos, +0x130/+0x134 cell,
-		//   +0x5F8/+0x5FC HP cur/max, +0x850 species, +0x854 objIdx,
-		//   +0x1568 dead flag, +0x1570 in-world/active flag.
+		// Enumerare DIRECTA a mobs prin m_pMobsCtx (world+0x1B0).
+		// Stride confirmat la runtime = 0xDF90 (adresele slot-urilor
+		// cresc exact cu 0xDF90). Citim fiecare slot ca MOBSCONTEXT*
+		// din header (acelasi tip ca playerul, ale carui campuri au dat
+		// deja valori corecte) -> nu mai ghicim offset-uri.
 		// =========================================================
 
 		char* mobBase =
@@ -635,77 +631,61 @@ int AutoPlay::OnHeartbeat(
 
 		if (mobBase && mobsCount > 0 && mobsCount <= 4096)
 		{
-			// (1) Dump primele 3 sloturi ca sa validam stride + offset-uri.
-			for (int i = 0; i < 3 && i < mobsCount; ++i)
-			{
-				char* p =
-					mobBase + static_cast<long long>(i) * kMobStride;
-
-				const int species = *reinterpret_cast<int*>(p + 0x850);
-				const int objIdx  = *reinterpret_cast<int*>(p + 0x854);
-				const int mhp     = *reinterpret_cast<int*>(p + 0x5F8);
-				const int mhpMax  = *reinterpret_cast<int*>(p + 0x5FC);
-				const unsigned char dead =
-					*reinterpret_cast<unsigned char*>(p + 0x1568);
-				const unsigned char active =
-					*reinterpret_cast<unsigned char*>(p + 0x1570);
-				const int mpx = *reinterpret_cast<int*>(p + 0x120);
-				const int mpy = *reinterpret_cast<int*>(p + 0x124);
-				const int mcx = *reinterpret_cast<int*>(p + 0x130);
-				const int mcy = *reinterpret_cast<int*>(p + 0x134);
-
-				char line[320];
-				snprintf(
-					line,
-					sizeof(line),
-					"DIAG mob[%d] @%p species=%d objIdx=%d hp=%d/%d "
-					"dead=%u active=%u pos=(%d,%d) cell=(%d,%d)",
-					i,
-					static_cast<void*>(p),
-					species, objIdx, mhp, mhpMax,
-					dead, active, mpx, mpy, mcx, mcy
-				);
-				Management::WriteLogs(kLogPath, line);
-			}
-
-			// (2) Scan complet: numara mobii vii si gaseste cel mai apropiat
-			//     fata de pozitia playerului (posX/posY citite mai sus).
-			int       aliveCount  = 0;
+			int       usedCount   = 0;   // sloturi ne-goale (objIdx/hp/idx != 0)
+			int       aliveCount  = 0;   // !bIsDead && iHP > 0
 			int       nearestObj  = -1;
 			int       nearestRow  = -1;
 			long long nearestD2   = -1;
 
 			for (int i = 0; i < mobsCount; ++i)
 			{
-				char* p =
-					mobBase + static_cast<long long>(i) * kMobStride;
+				MOBSCONTEXT* pMob =
+					reinterpret_cast<MOBSCONTEXT*>(
+						mobBase + static_cast<long long>(i) * kMobStride
+					);
 
-				const unsigned char dead =
-					*reinterpret_cast<unsigned char*>(p + 0x1568);
-				const unsigned char active =
-					*reinterpret_cast<unsigned char*>(p + 0x1570);
-				const int mhp = *reinterpret_cast<int*>(p + 0x5F8);
+				const int idx    = static_cast<int>(pMob->iIndex);
+				const int objId  = static_cast<int>(pMob->objIdx.sObjIdxData);
+				const int hpCur  = static_cast<int>(pMob->sParameters.iHP);
+				const int hpMax  = static_cast<int>(pMob->sParameters.iHPMax);
+				const int dead   = pMob->bIsDead ? 1 : 0;
+				const int mpx    = pMob->sPosData.iPosXCur;
+				const int mpy    = pMob->sPosData.iPosYCur;
 
-				if (dead || !active || mhp <= 0)
+				const bool used = (idx != 0) || (objId != 0) || (hpCur != 0);
+
+				// Logam primele 5 sloturi FOLOSITE ca sa vedem layout-ul real.
+				if (used && usedCount < 5)
+				{
+					char line[320];
+					snprintf(
+						line,
+						sizeof(line),
+						"DIAG mob used[%d] idx=%d objId=%d hp=%d/%d dead=%d pos=(%d,%d)",
+						i, idx, objId, hpCur, hpMax, dead, mpx, mpy
+					);
+					Management::WriteLogs(kLogPath, line);
+				}
+
+				if (used)
+					++usedCount;
+
+				if (dead || hpCur <= 0)
 					continue;
 
 				++aliveCount;
 
 				const long long dx =
-					static_cast<long long>(
-						*reinterpret_cast<int*>(p + 0x120)
-					) - posX;
+					static_cast<long long>(mpx) - posX;
 				const long long dy =
-					static_cast<long long>(
-						*reinterpret_cast<int*>(p + 0x124)
-					) - posY;
+					static_cast<long long>(mpy) - posY;
 				const long long d2 = dx * dx + dy * dy;
 
 				if (nearestD2 < 0 || d2 < nearestD2)
 				{
 					nearestD2  = d2;
 					nearestRow = i;
-					nearestObj = *reinterpret_cast<int*>(p + 0x854);
+					nearestObj = objId;
 				}
 			}
 
@@ -713,7 +693,8 @@ int AutoPlay::OnHeartbeat(
 			snprintf(
 				sum,
 				sizeof(sum),
-				"DIAG scan: alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld",
+				"DIAG scan: used=%d alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld",
+				usedCount,
 				aliveCount,
 				mobsCount,
 				nearestRow,
