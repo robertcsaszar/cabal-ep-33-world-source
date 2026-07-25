@@ -51,6 +51,11 @@ public:
 	// Probe pentru pachetele de mesaj care trec prin WorldSvr.
 	static int OnMessageProbe(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCtx);
 
+	// Probe pe CSC_ATTCKTOMOBS: logam pachetul REAL de atac (target/type/
+	// worldMob) cand jucatorul ataca manual. Ruleaza DUPA handler-ul nativ
+	// (AddProc = push_back in vector), deci nu blocheaza atacul.
+	static int OnAttackProbe(int* pProcessLayer, PROCESSDATACONTEXT* pProcessDataCtx);
+
 private:
 	void Tick(USERCONTEXT* pUserCtx, USERDATACONTEXT* pUserDataCtx);
 

@@ -62,9 +62,13 @@ void AutoPlay::Init()
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGSERVER2, OnMessageProbe);
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::C2S_SENDPMMESSAGE, OnMessageProbe);
 
+    // Probe pe atacul real: AddProc face push_back, deci nativul ramane
+    // primul in vector si ruleaza normal; noi doar logam pachetul dupa.
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::CSC_ATTCKTOMOBS, OnAttackProbe);
+
     Management::WriteLogs(
         kLogPath,
-        "AutoPlay::Init(): normal chat trigger 195 + message probes 393/395/396/483 registered"
+        "AutoPlay::Init(): normal chat trigger 195 + message probes 393/395/396/483 registered + attack probe 176"
     );
 }
 
@@ -963,6 +967,69 @@ int AutoPlay::OnMessageProbe(
         pUserDataCtx->GetCharacterIdx()
     );
     Management::WriteLogs(kLogPath, stateLine);
+
+    return P_OK;
+}
+
+int AutoPlay::OnAttackProbe(
+    int* pProcessLayer,
+    PROCESSDATACONTEXT* pProcessDataCtx
+)
+{
+    ALIAS_PTR(USERCONTEXT, pUserCtx, pProcessDataCtx->pUserCtx);
+    ALIAS_PTR(USERDATACONTEXT, pUserDataCtx, pUserCtx->pData);
+
+    const unsigned char* packet =
+        reinterpret_cast<const unsigned char*>(pProcessDataCtx->cpPacket);
+
+    const int len = static_cast<int>(pProcessDataCtx->iLen);
+
+    if (!packet || len <= 0)
+        return P_OK;
+
+    // Hex dump complet.
+    char hex[256];
+    int  hpos = 0;
+    for (int i = 0; i < len && hpos < static_cast<int>(sizeof(hex)) - 4; ++i)
+    {
+        const int w = snprintf(hex + hpos, sizeof(hex) - hpos, "%02X ", packet[i]);
+        if (w <= 0)
+            break;
+        hpos += w;
+    }
+    hex[hpos] = 0;
+
+    // Layout presupus (C2S_ATTCKTOMOBS, 16 bytes):
+    //   header 10B, DWORD target @0x0A, BYTE type @0x0E, BYTE worldMob @0x0F.
+    unsigned int target   = 0;
+    unsigned int typeByte = 0;
+    unsigned int worldMob = 0;
+    if (len >= 0x10)
+    {
+        target =
+            static_cast<unsigned int>(packet[0x0A]) |
+            (static_cast<unsigned int>(packet[0x0B]) << 8) |
+            (static_cast<unsigned int>(packet[0x0C]) << 16) |
+            (static_cast<unsigned int>(packet[0x0D]) << 24);
+        typeByte = packet[0x0E];
+        worldMob = packet[0x0F];
+    }
+
+    char line[512];
+    snprintf(
+        line,
+        sizeof(line),
+        "DIAG ATTACK user=%u char=%u len=%d target=%u(0x%X) type=0x%02X "
+        "worldMob=0x%02X hex=%s",
+        pUserDataCtx->GetUserNum(),
+        pUserDataCtx->GetCharacterIdx(),
+        len,
+        target, target,
+        typeByte,
+        worldMob,
+        hex
+    );
+    Management::WriteLogs(kLogPath, line);
 
     return P_OK;
 }
