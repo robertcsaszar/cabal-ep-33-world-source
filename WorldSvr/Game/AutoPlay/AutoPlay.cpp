@@ -8,8 +8,14 @@
 
 extern AutoPlay* g_pAutoPlay = AutoPlay::GetInstance();
 
-// Comuta pe 1 doar dupa ce confirmi layout-ul pachetului C2S_ATTCKTOMOBS
-// pentru EP33 (vezi TryAttack de mai jos). Implicit dezactivat => build sigur.
+// Faza 1b: atac real. Layout-ul C2S_ATTCKTOMOBS si adresa handler-ului au fost
+// extrase din binarul WorldSvr EP33 (OnCSCAttckToMobs @ 0x007456C0):
+//   - pachet = 16 octeti (verificare iLen == 0x10 in handler)
+//   - offset 0x0a: DWORD index tinta (folosit low-word, mascat &0xFFFF / &0x3FF)
+//   - offset 0x0e: BYTE tip obiect  (comparat cu 5 in handler)
+//   - offset 0x0f: BYTE flag (world-mob)
+// Lasa 0 pana testezi Faza 1a; pune 1 pentru a activa atacul (ideal doar pe
+// canalul de test WorldSvr_01_04).
 #define AUTOPLAY_ENABLE_ACTIONS 0
 
 namespace
@@ -119,23 +125,48 @@ int AutoPlay::FindNearestMob(USERDATACONTEXT* pUserDataCtx, int radius, long lon
 }
 
 #if AUTOPLAY_ENABLE_ACTIONS
-// Faza 1b (schita): trimite personajul sa atace mob-ul tinta reutilizand
-// handler-ul de atac deja inregistrat de server pentru [CSC_ATTCKTOMOBS],
-// fara adrese noi din binar. Necesita:
-//   1) layout-ul confirmat al pachetului C2S_ATTCKTOMOBS pentru EP33;
-//   2) un accesor pe PROCEDUREMAP care sa ruleze procedurile inregistrate
-//      (vezi nota din raspuns: PROCEDUREMAP::Execute).
+// Pachetul de atac pe mob (C2S_ATTCKTOMOBS), 16 octeti. Layout confirmat prin
+// dezasamblarea binarului EP33 (vezi nota de la AUTOPLAY_ENABLE_ACTIONS).
+#pragma pack(push, 1)
+struct C2S_ATTCKTOMOBS_PKT
+{
+	WORD  wMagicCode;    // 0x00
+	WORD  wPayLoadLen;   // 0x02
+	DWORD dwCheckSum;    // 0x04
+	WORD  wMainCmd;      // 0x08
+	// payload (6 octeti):
+	WORD  wTargetIdx;    // 0x0a  index obiect tinta (low-word folosit de server)
+	WORD  wTargetIdxHi;  // 0x0c  (restul DWORD-ului citit la 0x0a; de regula 0)
+	BYTE  bTargetType;   // 0x0e  tip obiect
+	BYTE  bWorldMob;     // 0x0f  flag world-mob
+};
+#pragma pack(pop)
+static_assert(sizeof(C2S_ATTCKTOMOBS_PKT) == 0x10, "attack packet must be 16 bytes");
+
+// Handler nativ al serverului: int OnCSCAttckToMobs(processLayer, PROCESSDATACONTEXT*).
+typedef int (*OnCSCAttckToMobs_t)(long long pProcessLayer, PROCESSDATACONTEXT* pCtx);
+static OnCSCAttckToMobs_t OnCSCAttckToMobs = reinterpret_cast<OnCSCAttckToMobs_t>(0x007456C0);
+
+// Trimite un atac catre mob reutilizand chiar handler-ul de atac al serverului
+// (toata validarea/damage/EXP-ul nativ). Valorile de tip/flag sunt luate direct
+// din objIdx al mob-ului, ca sa nu depindem de constante ghicite.
 static void TryAttack(USERCONTEXT* pUserCtx, MOBSCONTEXT* pMob)
 {
-	// #pragma pack(1)
-	// struct C2S_ATTCKTOMOBS { C2S_HEADER hdr; OBJIDXDATA2 target; ... };
-	// Construieste pachetul cu target = pMob->objIdx, apoi:
-	//   PROCESSDATACONTEXT ctx{};
-	//   ctx.pUserCtx = (int*)pUserCtx;
-	//   ctx.cpPacket = (char*)&pkt;
-	//   ctx.iLen     = sizeof(pkt);
-	//   g_sUsrProcedureMap[MAINCMD_VALUE_EX::CSC_ATTCKTOMOBS]->Execute(0, &ctx);
-	(void)pUserCtx; (void)pMob;
+	C2S_ATTCKTOMOBS_PKT pkt = {};
+	pkt.wMagicCode  = MAGIC_CODE;
+	pkt.wPayLoadLen = sizeof(pkt);
+	pkt.wMainCmd    = MAINCMD_VALUE_EX::CSC_ATTCKTOMOBS;
+	pkt.wTargetIdx  = static_cast<WORD>(pMob->objIdx.sObjIdxData);
+	pkt.wTargetIdxHi = 0;
+	pkt.bTargetType = pMob->objIdx.objectType;
+	pkt.bWorldMob   = pMob->objIdx.bWorldMob;
+
+	PROCESSDATACONTEXT ctx = {};
+	ctx.pUserCtx = reinterpret_cast<int*>(pUserCtx);
+	ctx.cpPacket = reinterpret_cast<char*>(&pkt);
+	ctx.iLen     = sizeof(pkt);
+
+	OnCSCAttckToMobs(0, &ctx);
 }
 #endif
 
