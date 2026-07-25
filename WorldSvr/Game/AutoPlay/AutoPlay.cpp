@@ -50,6 +50,13 @@ void AutoPlay::Init()
 
     // Probe non-destructiv pentru canalele de mesaj cunoscute din Protodefs.h.
     // Handlerul nostru returneaza mereu P_OK, deci procedurile native raman active.
+    // Trigger server-side fara modificare de client.
+    // REQ_PARTYMESSAG = 197 corespunde handlerului nativ OnCSCPartyMessage
+    // identificat in WorldSvr la 0x008D94F0. Mesajul de party contine textul
+    // trimis de client, deci putem folosi !autoplay on/off.
+    REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_PARTYMESSAG, OnMessageProbe);
+
+    // Pastram si probele cunoscute pentru PM / loud message; sunt non-destructive.
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGCHANNEL, OnMessageProbe);
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGSERVER, OnMessageProbe);
     REGISTER_PROC(g_sUsrProcedureMap, MAINCMD_VALUE_EX::REQ_LOUDMSGSERVER2, OnMessageProbe);
@@ -57,7 +64,7 @@ void AutoPlay::Init()
 
     Management::WriteLogs(
         kLogPath,
-        "AutoPlay::Init(): message probes 393/395/396/483 registered"
+        "AutoPlay::Init(): party trigger 197 + message probes 393/395/396/483 registered"
     );
 }
 
