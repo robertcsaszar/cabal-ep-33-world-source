@@ -268,6 +268,7 @@ static OnCSCAttckToMobs_t OnCSCAttckToMobs =
 // copiem OBJIDXDATA-ul mobului ca tinta + attackType 0x02 + flag 0x00.
 // Checksum-ul e ignorat cand chemam handler-ul direct (validat in net layer).
 static void TryAttack(
+    long long    processLayer,
     USERCONTEXT* pUserCtx,
     MOBSCONTEXT* pMob
 )
@@ -287,7 +288,9 @@ static void TryAttack(
     ctx.cpPacket = reinterpret_cast<char*>(&pkt);
     ctx.iLen     = sizeof(pkt);
 
-    OnCSCAttckToMobs(0, &ctx);
+    // Pasam processLayer-ul REAL (primit de handler-ul nostru), nu 0:
+    // handler-ul de atac il deref (->+0xb0 = pGameMgr).
+    OnCSCAttckToMobs(processLayer, &ctx);
 }
 
 void AutoPlay::Tick(
@@ -699,15 +702,29 @@ int AutoPlay::OnHeartbeat(
 				{
 					s_lastAtk = now;
 
-					TryAttack(pUserCtx, nearestMob);
-
-					char al[192];
-					snprintf(al, sizeof(al),
-						"DIAG ATTACK sent slot=%d obj=%d sp=%d dist=%lld",
+					// Log INAINTE de atac: daca mai crapa, avem parametrii.
+					const unsigned char* oi =
+						reinterpret_cast<const unsigned char*>(
+							&nearestMob->objIdx);
+					char pre[256];
+					snprintf(pre, sizeof(pre),
+						"DIAG ATTACK pre slot=%d obj=%d sp=%d dist=%lld "
+						"objIdx4=%02X %02X %02X %02X procLayer=%p",
 						nearestSlot, nearestObj, nearestSp,
 						static_cast<long long>(std::sqrt(
-							static_cast<double>(nearestD2))));
-					Management::WriteLogs(kLogPath, al);
+							static_cast<double>(nearestD2))),
+						oi[0], oi[1], oi[2], oi[3],
+						reinterpret_cast<void*>(pProcessLayer));
+					Management::WriteLogs(kLogPath, pre);
+
+					TryAttack(
+						reinterpret_cast<long long>(pProcessLayer),
+						pUserCtx,
+						nearestMob);
+
+					Management::WriteLogs(
+						kLogPath,
+						"DIAG ATTACK post (a supravietuit)");
 				}
 			}
 		}
