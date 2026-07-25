@@ -477,11 +477,11 @@ int AutoPlay::OnHeartbeat(
 		const long long hpMax =
 			pUserDataCtx->sParameters.iHPMax;
 
-		char diag[160];
+		char diag1[160];
 
 		snprintf(
-			diag,
-			sizeof(diag),
+			diag1,
+			sizeof(diag1),
 			"DIAG Tick test: HP=%lld HPMax=%lld",
 			hp,
 			hpMax
@@ -489,25 +489,29 @@ int AutoPlay::OnHeartbeat(
 
 		Management::WriteLogs(
 			kLogPath,
-			diag
+			diag1
 		);
+
+		// ---------------------------------------------------------
+		// Pozitie + pointer World
+		// ---------------------------------------------------------
 
 		Management::WriteLogs(
 			kLogPath,
 			"DIAG Tick test: inainte de citire pozitie/world"
 		);
-		
+
 		const int posX =
 			pUserDataCtx->sPosData.iPosXCur;
-		
+
 		const int posY =
 			pUserDataCtx->sPosData.iPosYCur;
-		
+
 		CWorld* pWorld =
 			pUserDataCtx->sPosData.pWorld;
-		
+
 		char diag2[256];
-		
+
 		snprintf(
 			diag2,
 			sizeof(diag2),
@@ -516,18 +520,33 @@ int AutoPlay::OnHeartbeat(
 			posY,
 			static_cast<void*>(pWorld)
 		);
-		
+
 		Management::WriteLogs(
 			kLogPath,
 			diag2
 		);
 
+		if (!pWorld)
+		{
+			Management::WriteLogs(
+				kLogPath,
+				"DIAG Tick test: pWorld este NULL"
+			);
+
+			return P_OK;
+		}
+
+		// ---------------------------------------------------------
+		// Monster count
+		// ---------------------------------------------------------
+
 		Management::WriteLogs(
 			kLogPath,
 			"DIAG Tick test: inainte de iMobsCount"
 		);
-		
-		int mobsCount = pWorld->iMobsCount;
+
+		const int mobsCount =
+			pWorld->iMobsCount;
 
 		char diag3[160];
 
@@ -543,26 +562,98 @@ int AutoPlay::OnHeartbeat(
 			diag3
 		);
 
+		// Protectie suplimentara in caz ca structura este gresita.
+		if (mobsCount <= 0 || mobsCount > 10000)
+		{
+			Management::WriteLogs(
+				kLogPath,
+				"DIAG Tick test: iMobsCount invalid - STOP"
+			);
+
+			return P_OK;
+		}
+
+		// ---------------------------------------------------------
+		// NU folosim:
+		//
+		// pWorld->GetMobPtr(...)
+		//
+		// deoarece am confirmat ca acel apel crapa WorldSvr.
+		//
+		// Testam monster array-ul direct la World + 0xC0.
+		// ---------------------------------------------------------
+
 		Management::WriteLogs(
 			kLogPath,
-			"DIAG Tick test: inainte de GetMobPtr(0)"
+			"DIAG Tick test: inainte de mob array direct"
 		);
 
-		MOBSCONTEXT* pMob0 = pWorld->GetMobPtr(0);
+		char* worldBase =
+			reinterpret_cast<char*>(pWorld);
 
-		char diag4[160];
+		void* mobArray =
+			*reinterpret_cast<void**>(
+				worldBase + 0xC0
+			);
+
+		char diag4[200];
 
 		snprintf(
 			diag4,
 			sizeof(diag4),
-			"DIAG Tick test: GetMobPtr(0)=%p",
-			static_cast<void*>(pMob0)
+			"DIAG Tick test: mobArray=%p mobsCount=%d",
+			mobArray,
+			mobsCount
 		);
 
 		Management::WriteLogs(
 			kLogPath,
 			diag4
 		);
+
+		if (!mobArray)
+		{
+			Management::WriteLogs(
+				kLogPath,
+				"DIAG Tick test: mobArray este NULL"
+			);
+
+			return P_OK;
+		}
+
+		// ---------------------------------------------------------
+		// Primul MOB
+		//
+		// Momentan doar calculam adresa.
+		// NU citim HP/state/position inca.
+		// ---------------------------------------------------------
+
+		char* mob0 =
+			reinterpret_cast<char*>(mobArray);
+
+		char diag5[200];
+
+		snprintf(
+			diag5,
+			sizeof(diag5),
+			"DIAG Tick test: mob0=%p",
+			static_cast<void*>(mob0)
+		);
+
+		Management::WriteLogs(
+			kLogPath,
+			diag5
+		);
+
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG Tick test: SUCCESS pana la mob0"
+		);
+
+		// IMPORTANT:
+		// Tick() ramane dezactivat momentan.
+		//
+		// g_pAutoPlay->Tick(pUserCtx, pUserDataCtx);
 	}
 
     return P_OK;
