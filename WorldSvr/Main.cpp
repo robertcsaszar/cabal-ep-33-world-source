@@ -6,11 +6,13 @@
 #include "Game/EventAlert/EventAlert.h"
 #include "Game/Warp/Warp.h"
 #include "Game/WindowList/WindowList.h"
+#include "Game/AutoPlay/AutoPlay.h"
 
 void LoadConfigs()
 {
     INIT(Proc);
     INIT(Warp);
+    INIT(AutoPlay);
     EventAlert::Initialize();
     MacroBM3::Initialize();
     WindowList::Initialize();
