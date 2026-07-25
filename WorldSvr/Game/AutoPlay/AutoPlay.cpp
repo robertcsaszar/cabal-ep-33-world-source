@@ -717,14 +717,21 @@ int AutoPlay::OnHeartbeat(
 						reinterpret_cast<void*>(pProcessLayer));
 					Management::WriteLogs(kLogPath, pre);
 
+					const long long hpBefore = nearestMob->sParameters.iHP;
+
 					TryAttack(
 						reinterpret_cast<long long>(pProcessLayer),
 						pUserCtx,
 						nearestMob);
 
-					Management::WriteLogs(
-						kLogPath,
-						"DIAG ATTACK post (a supravietuit)");
+					const long long hpAfter = nearestMob->sParameters.iHP;
+
+					char post[192];
+					snprintf(post, sizeof(post),
+						"DIAG ATTACK post hp %lld -> %lld (%s)",
+						hpBefore, hpAfter,
+						hpAfter < hpBefore ? "DAMAGE!" : "fara schimbare");
+					Management::WriteLogs(kLogPath, post);
 				}
 			}
 		}
