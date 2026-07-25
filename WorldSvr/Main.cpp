@@ -8,6 +8,8 @@
 #include "Game/WindowList/WindowList.h"
 #include "Game/AutoPlay/AutoPlay.h"
 #include "Game/Management/Management.h"
+#include <thread>
+#include <chrono>
 
 void LoadConfigs()
 {
@@ -37,5 +39,21 @@ extern "C" void Init()
 __attribute__((constructor))
 static void OnPluginLoad()
 {
-    Management::WriteLogs("./AutoPlay.log", "=== constructor: lib.so incarcat via LD_PRELOAD ===");
+    Management::WriteLogs(
+        "./AutoPlay.log",
+        "=== constructor: lib.so incarcat via LD_PRELOAD ==="
+    );
+
+    std::thread([]()
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        Management::WriteLogs(
+            "./AutoPlay.log",
+            "=== LD_PRELOAD: incerc LoadConfigs dupa 5 secunde ==="
+        );
+
+        LoadConfigs();
+
+    }).detach();
 }
