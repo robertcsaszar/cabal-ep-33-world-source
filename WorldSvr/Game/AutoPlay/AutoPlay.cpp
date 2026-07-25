@@ -491,6 +491,36 @@ int AutoPlay::OnHeartbeat(
 			kLogPath,
 			diag
 		);
+
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG Tick test: inainte de citire pozitie/world"
+		);
+		
+		const int posX =
+			pUserDataCtx->sPosData.iPosXCur;
+		
+		const int posY =
+			pUserDataCtx->sPosData.iPosYCur;
+		
+		CWorld* pWorld =
+			pUserDataCtx->sPosData.pWorld;
+		
+		char diag2[256];
+		
+		snprintf(
+			diag2,
+			sizeof(diag2),
+			"DIAG Tick test: pos=(%d,%d) pWorld=%p",
+			posX,
+			posY,
+			static_cast<void*>(pWorld)
+		);
+		
+		Management::WriteLogs(
+			kLogPath,
+			diag2
+		);
 	}
 
     return P_OK;
