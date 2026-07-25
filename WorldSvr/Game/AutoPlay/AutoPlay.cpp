@@ -466,40 +466,15 @@ int AutoPlay::OnHeartbeat(
 
     if (g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()))
 	{
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG Tick test: inainte de citire HP"
-		);
+		// =========================================================
+		// AUTOPLAY DIAGNOSTIC - native World_GetActorByIndex test
+		// =========================================================
 
 		const long long hp =
 			pUserDataCtx->sParameters.iHP;
 
 		const long long hpMax =
 			pUserDataCtx->sParameters.iHPMax;
-
-		char diag1[160];
-
-		snprintf(
-			diag1,
-			sizeof(diag1),
-			"DIAG Tick test: HP=%lld HPMax=%lld",
-			hp,
-			hpMax
-		);
-
-		Management::WriteLogs(
-			kLogPath,
-			diag1
-		);
-
-		// ---------------------------------------------------------
-		// Pozitie + pointer World
-		// ---------------------------------------------------------
-
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG Tick test: inainte de citire pozitie/world"
-		);
 
 		const int posX =
 			pUserDataCtx->sPosData.iPosXCur;
@@ -510,12 +485,20 @@ int AutoPlay::OnHeartbeat(
 		CWorld* pWorld =
 			pUserDataCtx->sPosData.pWorld;
 
-		char diag2[256];
+		// ---------------------------------------------------------
+		// 1. User / HP / position / world
+		// ---------------------------------------------------------
+
+		char diag1[256];
 
 		snprintf(
-			diag2,
-			sizeof(diag2),
-			"DIAG Tick test: pos=(%d,%d) pWorld=%p",
+			diag1,
+			sizeof(diag1),
+			"DIAG native actor test: user=%u char=%u hp=%lld/%lld pos=(%d,%d) world=%p",
+			pUserDataCtx->GetUserNum(),
+			pUserDataCtx->GetCharacterIdx(),
+			hp,
+			hpMax,
 			posX,
 			posY,
 			static_cast<void*>(pWorld)
@@ -523,70 +506,26 @@ int AutoPlay::OnHeartbeat(
 
 		Management::WriteLogs(
 			kLogPath,
-			diag2
+			diag1
 		);
 
 		if (!pWorld)
 		{
 			Management::WriteLogs(
 				kLogPath,
-				"DIAG Tick test: pWorld este NULL"
+				"DIAG native actor test: pWorld este NULL"
 			);
 
 			return P_OK;
 		}
 
 		// ---------------------------------------------------------
-		// Monster count
-		// ---------------------------------------------------------
-
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG Tick test: inainte de iMobsCount"
-		);
-
-		const int mobsCount =
-			pWorld->iMobsCount;
-
-		char diag3[160];
-
-		snprintf(
-			diag3,
-			sizeof(diag3),
-			"DIAG Tick test: iMobsCount=%d",
-			mobsCount
-		);
-
-		Management::WriteLogs(
-			kLogPath,
-			diag3
-		);
-
-		// Protectie suplimentara in caz ca structura este gresita.
-		if (mobsCount <= 0 || mobsCount > 10000)
-		{
-			Management::WriteLogs(
-				kLogPath,
-				"DIAG Tick test: iMobsCount invalid - STOP"
-			);
-
-			return P_OK;
-		}
-
-		// ---------------------------------------------------------
-		// NU folosim:
+		// 2. Citim layout-ul CWorld confirmat din WorldSvr
 		//
-		// pWorld->GetMobPtr(...)
-		//
-		// deoarece am confirmat ca acel apel crapa WorldSvr.
-		//
-		// Testam monster array-ul direct la World + 0xC0.
+		// +0xC0 = monster/NPC actor array pointer
+		// +0xD8 = monster/NPC count
+		// stride = 0xDF90
 		// ---------------------------------------------------------
-
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG Tick test: inainte de mob array direct"
-		);
 
 		char* worldBase =
 			reinterpret_cast<char*>(pWorld);
@@ -596,64 +535,98 @@ int AutoPlay::OnHeartbeat(
 				worldBase + 0xC0
 			);
 
-		char diag4[200];
+		const int mobsCount =
+			*reinterpret_cast<int*>(
+				worldBase + 0xD8
+			);
+
+		char diag2[256];
 
 		snprintf(
-			diag4,
-			sizeof(diag4),
-			"DIAG Tick test: mobArray=%p mobsCount=%d",
+			diag2,
+			sizeof(diag2),
+			"DIAG native actor test: [world+C0]=%p [world+D8]=%d",
 			mobArray,
 			mobsCount
 		);
 
 		Management::WriteLogs(
 			kLogPath,
-			diag4
+			diag2
 		);
 
-		if (!mobArray)
-		{
-			Management::WriteLogs(
-				kLogPath,
-				"DIAG Tick test: mobArray este NULL"
+		// ---------------------------------------------------------
+		// 3. Accessor NATIV WorldSvr
+		//
+		// Disassembly:
+		//
+		// 0x00800B50
+		//
+		// rdi = CWorld*
+		// esi = actor index
+		//
+		// index <= 0x0FFF -> player
+		// index >= 0x1000 -> monster/NPC
+		//
+		// Pentru monster:
+		//
+		// realIndex = index - 0x1000
+		// ptr = *(world + 0xC0) + realIndex * 0xDF90
+		// ---------------------------------------------------------
+
+		typedef void* (*World_GetActorByIndex_t)(
+			void* pWorld,
+			int index
+		);
+
+		static World_GetActorByIndex_t World_GetActorByIndex =
+			reinterpret_cast<World_GetActorByIndex_t>(
+				0x00800B50
 			);
 
-			return P_OK;
-		}
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG native actor test: inainte de World_GetActorByIndex(world, 0x1000)"
+		);
 
 		// ---------------------------------------------------------
-		// Primul MOB
-		//
-		// Momentan doar calculam adresa.
-		// NU citim HP/state/position inca.
+		// IMPORTANT:
+		// momentan testam DOAR primul actor monster.
+		// NU dereferentiem pointerul returnat.
 		// ---------------------------------------------------------
 
-		char* mob0 =
-			reinterpret_cast<char*>(mobArray);
+		void* mob0 =
+			World_GetActorByIndex(
+				pWorld,
+				0x1000
+			);
 
-		char diag5[200];
+		char diag3[256];
 
 		snprintf(
-			diag5,
-			sizeof(diag5),
-			"DIAG Tick test: mob0=%p",
-			static_cast<void*>(mob0)
+			diag3,
+			sizeof(diag3),
+			"DIAG native actor test: actor[0x1000]=%p",
+			mob0
 		);
 
 		Management::WriteLogs(
 			kLogPath,
-			diag5
+			diag3
 		);
 
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG Tick test: SUCCESS pana la mob0"
-		);
-
-		// IMPORTANT:
-		// Tick() ramane dezactivat momentan.
+		// =========================================================
+		// STOP TEST
 		//
-		// g_pAutoPlay->Tick(pUserCtx, pUserDataCtx);
+		// NU:
+		//   - apelam GetMobPtr()
+		//   - citim HP-ul mobului
+		//   - citim pozitia mobului
+		//   - iteram prin mobsCount
+		//   - atacam
+		//
+		// Mai intai confirmam ca World_GetActorByIndex() este safe.
+		// =========================================================
 	}
 
     return P_OK;
