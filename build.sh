@@ -42,8 +42,15 @@ if [[ ${#SRCS[@]} -eq 0 ]]; then
 fi
 
 # --- flag-uri (identice cu configuratia Release|x64 din .vcxproj) ---
-CXXFLAGS=(-std=c++17 -fpermissive -pthread -O2 -I.)
-LDFLAGS=(-shared -Wl,-Ttext-segment=0x05000000 -ldl)
+# -Wno-*: doar zgomot inofensiv (pattern-ul extern-cu-initializer si un typedef).
+CXXFLAGS=(-std=c++17 -fpermissive -pthread -O2 -I.
+          -Wno-non-c-typedef-for-linkage -Wno-extern-initializer)
+# Plugin-ul e NON-PIC si trebuie sa se incarce la 0x05000000 (hook-urile CALL
+# rel32 depind de adresa joasa fixa). Linker-ele moderne (Ubuntu 24.04) refuza
+# implicit relocarile din .text: le reactivam pastrand non-PIC.
+#   -Bsymbolic : leaga referintele interne local -> elimina eroarea PC32
+#   -z notext  : permite relocarile ramase in .text
+LDFLAGS=(-shared -Wl,-Ttext-segment=0x05000000 -Wl,-Bsymbolic -Wl,-z,notext -ldl)
 
 echo "==> Compilez ${#SRCS[@]} fisiere cu $CXX ..."
 printf '      %s\n' "${SRCS[@]}"
