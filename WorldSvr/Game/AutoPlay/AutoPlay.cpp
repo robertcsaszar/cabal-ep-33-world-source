@@ -617,56 +617,123 @@ int AutoPlay::OnHeartbeat(
 		}
 
 		// =========================================================
-		// Accessor NATIV din WorldSvr
-		// 0x00800B50
+		// Enumerare DIRECTA a mobs prin m_pMobsCtx (world+0x1B0),
+		// stride = 0xDF90 (dimensiunea unui actor, confirmata din RE).
+		// NU folosim accesorul nativ 0x00800B50: la runtime a intors nil
+		// fiindca intern citeste offset-urile gresite 0xC0/0xD8.
 		//
-		// rdi = World*
-		// esi = actor index
-		//
-		// >= 0x1000 => monster / NPC
+		// Offset-uri camp mob (din RE, MOBSCONTEXT/CREATUREBASE):
+		//   +0x120/+0x124 pos, +0x130/+0x134 cell,
+		//   +0x5F8/+0x5FC HP cur/max, +0x850 species, +0x854 objIdx,
+		//   +0x1568 dead flag, +0x1570 in-world/active flag.
 		// =========================================================
 
-		typedef void* (*World_GetActorByIndex_t)(
-			void* pWorld,
-			int index
-		);
+		char* mobBase =
+			reinterpret_cast<char*>(mobArray);
 
-		static World_GetActorByIndex_t World_GetActorByIndex =
-			reinterpret_cast<World_GetActorByIndex_t>(
-				0x00800B50
+		const long long kMobStride = 0xDF90;
+
+		if (mobBase && mobsCount > 0 && mobsCount <= 4096)
+		{
+			// (1) Dump primele 3 sloturi ca sa validam stride + offset-uri.
+			for (int i = 0; i < 3 && i < mobsCount; ++i)
+			{
+				char* p =
+					mobBase + static_cast<long long>(i) * kMobStride;
+
+				const int species = *reinterpret_cast<int*>(p + 0x850);
+				const int objIdx  = *reinterpret_cast<int*>(p + 0x854);
+				const int mhp     = *reinterpret_cast<int*>(p + 0x5F8);
+				const int mhpMax  = *reinterpret_cast<int*>(p + 0x5FC);
+				const unsigned char dead =
+					*reinterpret_cast<unsigned char*>(p + 0x1568);
+				const unsigned char active =
+					*reinterpret_cast<unsigned char*>(p + 0x1570);
+				const int mpx = *reinterpret_cast<int*>(p + 0x120);
+				const int mpy = *reinterpret_cast<int*>(p + 0x124);
+				const int mcx = *reinterpret_cast<int*>(p + 0x130);
+				const int mcy = *reinterpret_cast<int*>(p + 0x134);
+
+				char line[320];
+				snprintf(
+					line,
+					sizeof(line),
+					"DIAG mob[%d] @%p species=%d objIdx=%d hp=%d/%d "
+					"dead=%u active=%u pos=(%d,%d) cell=(%d,%d)",
+					i,
+					static_cast<void*>(p),
+					species, objIdx, mhp, mhpMax,
+					dead, active, mpx, mpy, mcx, mcy
+				);
+				Management::WriteLogs(kLogPath, line);
+			}
+
+			// (2) Scan complet: numara mobii vii si gaseste cel mai apropiat
+			//     fata de pozitia playerului (posX/posY citite mai sus).
+			int       aliveCount  = 0;
+			int       nearestObj  = -1;
+			int       nearestRow  = -1;
+			long long nearestD2   = -1;
+
+			for (int i = 0; i < mobsCount; ++i)
+			{
+				char* p =
+					mobBase + static_cast<long long>(i) * kMobStride;
+
+				const unsigned char dead =
+					*reinterpret_cast<unsigned char*>(p + 0x1568);
+				const unsigned char active =
+					*reinterpret_cast<unsigned char*>(p + 0x1570);
+				const int mhp = *reinterpret_cast<int*>(p + 0x5F8);
+
+				if (dead || !active || mhp <= 0)
+					continue;
+
+				++aliveCount;
+
+				const long long dx =
+					static_cast<long long>(
+						*reinterpret_cast<int*>(p + 0x120)
+					) - posX;
+				const long long dy =
+					static_cast<long long>(
+						*reinterpret_cast<int*>(p + 0x124)
+					) - posY;
+				const long long d2 = dx * dx + dy * dy;
+
+				if (nearestD2 < 0 || d2 < nearestD2)
+				{
+					nearestD2  = d2;
+					nearestRow = i;
+					nearestObj = *reinterpret_cast<int*>(p + 0x854);
+				}
+			}
+
+			char sum[256];
+			snprintf(
+				sum,
+				sizeof(sum),
+				"DIAG scan: alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld",
+				aliveCount,
+				mobsCount,
+				nearestRow,
+				nearestObj,
+				nearestD2 >= 0
+					? static_cast<long long>(std::sqrt(
+						static_cast<double>(nearestD2)))
+					: -1
 			);
-
-		Management::WriteLogs(
-			kLogPath,
-			"DIAG real world test: before actor 0x1000"
-		);
-
-		// Primul monster/NPC actor
-		void* mob0 =
-			World_GetActorByIndex(
-				pWorld,
-				0x1000
+			Management::WriteLogs(kLogPath, sum);
+		}
+		else
+		{
+			Management::WriteLogs(
+				kLogPath,
+				"DIAG scan: m_pMobsCtx invalid, skip"
 			);
+		}
 
-		char diag3[256];
-
-		snprintf(
-			diag3,
-			sizeof(diag3),
-			"DIAG real world test: actor[0x1000]=%p",
-			mob0
-		);
-
-		Management::WriteLogs(
-			kLogPath,
-			diag3
-		);
-
-		// STOP aici momentan.
-		// NU dereferentiem mob0 inca.
-		// NU apelam GetMobPtr().
-		// NU apelam Tick().
-		// NU activam atacul.
+		// STOP aici momentan. Doar diagnostic; fara atac/miscare.
 	}
 
     return P_OK;
