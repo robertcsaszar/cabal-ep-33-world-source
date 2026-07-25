@@ -631,11 +631,10 @@ int AutoPlay::OnHeartbeat(
 
 		if (mobBase && mobsCount > 0 && mobsCount <= 4096)
 		{
-			int       usedCount   = 0;   // sloturi ne-goale (objIdx/hp/idx != 0)
-			int       aliveCount  = 0;   // !bIsDead && iHP > 0
-			int       nearestObj  = -1;
-			int       nearestRow  = -1;
-			long long nearestD2   = -1;
+			int       speciesCount = 0;  // sloturi cu un species id plauzibil
+			int       aliveCount   = 0;  // mob viu strict (candidat de tinta)
+			int       nearestRow   = -1;
+			long long nearestD2    = -1;
 
 			for (int i = 0; i < mobsCount; ++i)
 			{
@@ -653,34 +652,38 @@ int AutoPlay::OnHeartbeat(
 				const int      mpx    = pMob->sPosData.iPosXCur;
 				const int      mpy    = pMob->sPosData.iPosYCur;
 
-				// "Slot in uz" dupa criteriul jocului: e intr-o faza activa
-				// (_mpMPhase != MP_NONE) SI are un species/monster index valid.
-				// Asta elimina sloturile libere din pool (care contineau
-				// floats/pointeri la offset-ul de HP).
-				const bool used =
-					(phase != 0) &&
-					(monIdx > 0 && monIdx < 100000) &&
-					(hpMax > 0 && hpMax < 100000000);
+				// PLASA LARGA de logging: orice slot cu un species id plauzibil,
+				// indiferent de hp/phase. Daca mobii din jur (Rabithorn/Scorlug)
+				// sunt in acest array, ii vedem aici cu toate campurile.
+				const bool hasSpecies = (monIdx > 0 && monIdx < 100000);
 
-				if (used && usedCount < 6)
+				// ALIVE strict: mob real, viu, atacabil.
+				const bool aliveStrict =
+					hasSpecies &&
+					!dead &&
+					hpCur > 0 && hpCur <= hpMax &&
+					hpMax > 0 && hpMax < 100000000 &&
+					(phase > 0 && phase < 64) &&
+					(mpx != 0 || mpy != 0);
+
+				if (hasSpecies && speciesCount < 20)
 				{
 					char line[320];
 					snprintf(
 						line,
 						sizeof(line),
-						"DIAG mob real[%d] monIdx=%d phase=%d hp=%lld/%lld "
-						"dead=%d objId=%d pos=(%d,%d)",
-						i, monIdx, phase, hpCur, hpMax, dead, objId, mpx, mpy
+						"DIAG cand[%d] monIdx=%d phase=%d hp=%lld/%lld dead=%d "
+						"objId=%d pos=(%d,%d) alive=%d",
+						i, monIdx, phase, hpCur, hpMax, dead, objId, mpx, mpy,
+						aliveStrict ? 1 : 0
 					);
 					Management::WriteLogs(kLogPath, line);
 				}
 
-				if (!used)
-					continue;
+				if (hasSpecies)
+					++speciesCount;
 
-				++usedCount;
-
-				if (dead || hpCur <= 0)
+				if (!aliveStrict)
 					continue;
 
 				++aliveCount;
@@ -695,7 +698,6 @@ int AutoPlay::OnHeartbeat(
 				{
 					nearestD2  = d2;
 					nearestRow = i;
-					nearestObj = objId;
 				}
 			}
 
@@ -703,12 +705,11 @@ int AutoPlay::OnHeartbeat(
 			snprintf(
 				sum,
 				sizeof(sum),
-				"DIAG scan: real=%d alive=%d/%d nearestRow=%d nearestObj=%d dist=%lld player=(%d,%d)",
-				usedCount,
+				"DIAG scan: species=%d alive=%d/%d nearestRow=%d dist=%lld player=(%d,%d)",
+				speciesCount,
 				aliveCount,
 				mobsCount,
 				nearestRow,
-				nearestObj,
 				nearestD2 >= 0
 					? static_cast<long long>(std::sqrt(
 						static_cast<double>(nearestD2)))
