@@ -465,15 +465,33 @@ int AutoPlay::OnHeartbeat(
     }
 
     if (g_pAutoPlay->IsEnabled(pUserDataCtx->GetUserNum()))
-{
-    Management::WriteLogs(
-        kLogPath,
-        "DIAG autoplay ON - Tick dezactivat temporar"
-    );
+	{
+		Management::WriteLogs(
+			kLogPath,
+			"DIAG Tick test: inainte de citire HP"
+		);
 
-    // TEMP: dezactivat pana verificam structurile World/Mob
-    // g_pAutoPlay->Tick(pUserCtx, pUserDataCtx);
-}
+		const long long hp =
+			pUserDataCtx->sParameters.iHP;
+
+		const long long hpMax =
+			pUserDataCtx->sParameters.iHPMax;
+
+		char diag[160];
+
+		snprintf(
+			diag,
+			sizeof(diag),
+			"DIAG Tick test: HP=%lld HPMax=%lld",
+			hp,
+			hpMax
+		);
+
+		Management::WriteLogs(
+			kLogPath,
+			diag
+		);
+	}
 
     return P_OK;
 }
