@@ -267,7 +267,9 @@ static OnCSCAttckToMobs_t OnCSCAttckToMobs =
 // Trimite un atac normal catre pMob, replicand EXACT pachetul clientului:
 // copiem OBJIDXDATA-ul mobului ca tinta + attackType 0x02 + flag 0x00.
 // Checksum-ul e ignorat cand chemam handler-ul direct (validat in net layer).
-static void TryAttack(
+// Intoarce codul de return al handler-ului nativ (P_OK vs cod de fail) ca sa
+// putem diagnostica daca handler-ul ajunge la broadcast sau bailează inainte.
+static int TryAttack(
     long long    processLayer,
     USERCONTEXT* pUserCtx,
     MOBSCONTEXT* pMob
@@ -290,7 +292,7 @@ static void TryAttack(
 
     // Pasam processLayer-ul REAL (primit de handler-ul nostru), nu 0:
     // handler-ul de atac il deref (->+0xb0 = pGameMgr).
-    OnCSCAttckToMobs(processLayer, &ctx);
+    return OnCSCAttckToMobs(processLayer, &ctx);
 }
 
 void AutoPlay::Tick(
@@ -717,19 +719,27 @@ int AutoPlay::OnHeartbeat(
 						reinterpret_cast<void*>(pProcessLayer));
 					Management::WriteLogs(kLogPath, pre);
 
-					const long long hpBefore = nearestMob->sParameters.iHP;
+					const long long hpBefore    = nearestMob->sParameters.iHP;
+					const long long hpMaxBefore = nearestMob->sParameters.iHPMax;
+					const int       deadBefore  = nearestMob->bIsDead ? 1 : 0;
 
-					TryAttack(
+					const int retCode = TryAttack(
 						reinterpret_cast<long long>(pProcessLayer),
 						pUserCtx,
 						nearestMob);
 
-					const long long hpAfter = nearestMob->sParameters.iHP;
+					const long long hpAfter    = nearestMob->sParameters.iHP;
+					const long long hpMaxAfter = nearestMob->sParameters.iHPMax;
+					const int       deadAfter  = nearestMob->bIsDead ? 1 : 0;
 
-					char post[192];
+					char post[256];
 					snprintf(post, sizeof(post),
-						"DIAG ATTACK post hp %lld -> %lld (%s)",
+						"DIAG ATTACK post ret=%d hp %lld->%lld hpMax %lld->%lld "
+						"dead %d->%d (%s)",
+						retCode,
 						hpBefore, hpAfter,
+						hpMaxBefore, hpMaxAfter,
+						deadBefore, deadAfter,
 						hpAfter < hpBefore ? "DAMAGE!" : "fara schimbare");
 					Management::WriteLogs(kLogPath, post);
 				}
