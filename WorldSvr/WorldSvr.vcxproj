@@ -81,6 +81,7 @@
     <TargetName>$(ProjectName)</TargetName>
   </PropertyGroup>
   <ItemGroup>
+    <ClCompile Include="Game\AutoPlay\AutoPlay.cpp" />
     <ClCompile Include="Game\EventAlert\EventAlert.cpp" />
     <ClCompile Include="Game\MacroBM3\MacroBM3.cpp" />
     <ClCompile Include="Game\Management\Management.cpp" />
@@ -99,6 +100,7 @@
     <ClInclude Include="Common\typedefs.h" />
     <ClInclude Include="Common\XorString.h" />
     <ClInclude Include="Core.h" />
+    <ClInclude Include="Game\AutoPlay\AutoPlay.h" />
     <ClInclude Include="Game\EventAlert\EventAlert.h" />
     <ClInclude Include="Game\MacroBM3\MacroBM3.h" />
     <ClInclude Include="Game\Management\Management.h" />

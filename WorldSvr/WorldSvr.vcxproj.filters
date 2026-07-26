@@ -2,6 +2,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Game\AutoPlay\AutoPlay.cpp">
+      <Filter>Game\AutoPlay</Filter>
+    </ClCompile>
     <ClCompile Include="Game\EventAlert\EventAlert.cpp">
       <Filter>Game\EventAlert</Filter>
     </ClCompile>
@@ -36,6 +39,9 @@
     </Filter>
     <Filter Include="Game">
       <UniqueIdentifier>{c20bbae4-bf53-4207-9e59-07ea51b8ce51}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Game\AutoPlay">
+      <UniqueIdentifier>{7f3a1c20-0033-4a55-9f10-2b6c9d4e1a77}</UniqueIdentifier>
     </Filter>
     <Filter Include="Game\EventAlert">
       <UniqueIdentifier>{197d9095-c72e-4a50-9554-af94e69dc85c}</UniqueIdentifier>
@@ -74,6 +80,9 @@
     </ClInclude>
     <ClInclude Include="typedefs.h">
       <Filter>Types</Filter>
+    </ClInclude>
+    <ClInclude Include="Game\AutoPlay\AutoPlay.h">
+      <Filter>Game\AutoPlay</Filter>
     </ClInclude>
     <ClInclude Include="Game\EventAlert\EventAlert.h">
       <Filter>Game\EventAlert</Filter>
