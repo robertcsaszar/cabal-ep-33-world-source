@@ -270,9 +270,10 @@ static OnCSCAttckToMobs_t OnCSCAttckToMobs =
 // Intoarce codul de return al handler-ului nativ (P_OK vs cod de fail) ca sa
 // putem diagnostica daca handler-ul ajunge la broadcast sau bailează inainte.
 static int TryAttack(
-    long long    processLayer,
-    USERCONTEXT* pUserCtx,
-    MOBSCONTEXT* pMob
+    long long           processLayer,
+    USERCONTEXT*        pUserCtx,
+    MOBSCONTEXT*        pMob,
+    PROCESSDATACONTEXT* pSrcCtx   // ctx-ul REAL primit de OnHeartbeat (aceeasi conexiune)
 )
 {
     C2S_ATTCKTOMOBS_PKT pkt = {};
@@ -285,7 +286,11 @@ static int TryAttack(
     pkt.bAttackType = 0x02;                              // atac normal
     pkt.bFlag       = 0x00;
 
-    PROCESSDATACONTEXT ctx = {};
+    // EXPERIMENT: pornim de la ctx-ul REAL (iUniqIdx + _iData0/1/2 valide pentru
+    // aceasta conexiune), nu de la unul zeroit. Suprascriem doar pachetul + len.
+    // Daca handler-ul ramifica pe aceste campuri, asta e diferenta fata de un
+    // pachet trimis de client. pUserCtx e deja acelasi user, deci il pastram.
+    PROCESSDATACONTEXT ctx = *pSrcCtx;
     ctx.pUserCtx = reinterpret_cast<int*>(pUserCtx);
     ctx.cpPacket = reinterpret_cast<char*>(&pkt);
     ctx.iLen     = sizeof(pkt);
@@ -723,10 +728,22 @@ int AutoPlay::OnHeartbeat(
 					const long long hpMaxBefore = nearestMob->sParameters.iHPMax;
 					const int       deadBefore  = nearestMob->bIsDead ? 1 : 0;
 
+					char ctxdbg[192];
+					snprintf(ctxdbg, sizeof(ctxdbg),
+						"DIAG ATTACK ctx iUniqIdx=%d _iData0=%d _iData1=%d "
+						"_iData2=%d iLen=%d",
+						pProcessDataCtx->iUniqIdx,
+						pProcessDataCtx->_iData0,
+						pProcessDataCtx->_iData1,
+						pProcessDataCtx->_iData2,
+						static_cast<int>(pProcessDataCtx->iLen));
+					Management::WriteLogs(kLogPath, ctxdbg);
+
 					const int retCode = TryAttack(
 						reinterpret_cast<long long>(pProcessLayer),
 						pUserCtx,
-						nearestMob);
+						nearestMob,
+						pProcessDataCtx);
 
 					const long long hpAfter    = nearestMob->sParameters.iHP;
 					const long long hpMaxAfter = nearestMob->sParameters.iHPMax;
